@@ -33,7 +33,7 @@ class Satellite:
         self.__sensor_4_BF = self.__corner_4_BF + self.__boom_length * np.array([1, 1, -1])/np.sqrt(3)
 
         # satellite orbit 
-        self.__OE_sat =  [6378 + 750, 0.063, np.deg2rad(45), 0, 0, 0]
+        self.__OE_sat =  [R_EARTH + 750, 0.063, np.deg2rad(45), 0, 0, 0]
 
         self.__sat_orbit = Orbit.from_OE(np.array(self.__OE_sat))
 
@@ -51,10 +51,10 @@ class Satellite:
 
 
         # sensor positions in ECI frame
-        self.__sensor_1_ECI = self.__position + self.__R_BF_to_ECI.dot(self.__sensor_1_BF)
-        self.__sensor_2_ECI = self.__position + self.__R_BF_to_ECI.dot(self.__sensor_2_BF)
-        self.__sensor_3_ECI = self.__position + self.__R_BF_to_ECI.dot(self.__sensor_3_BF)
-        self.__sensor_4_ECI = self.__position + self.__R_BF_to_ECI.dot(self.__sensor_4_BF)
+        self.__sensor_1_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensor_1_BF
+        self.__sensor_2_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensor_2_BF
+        self.__sensor_3_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensor_3_BF
+        self.__sensor_4_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensor_4_BF
 
         # wake parameters
         self.__plane_angle = 20.0 * np.pi / 180.0
@@ -73,6 +73,31 @@ class Satellite:
         self.__plane_normal_BF_4 = np.array([-np.sin(self.__plane_angle), -np.cos(self.__plane_angle), 0.0])
         self.__d_4_BF = self.__sat_x_size / 2 * np.sin(self.__plane_angle) - self.__sat_y_size / 2 * np.cos(self.__plane_angle)
 
+    # check satellite raan precession rate
+    def get_raan_precession_rate(self):
+        # RAAN precession rate due to J2 perturbation (radians per second)
+        a = self.__OE_sat[0]  # semi-major axis in km
+        e = self.__OE_sat[1]  # eccentricity
+        i = self.__OE_sat[2]  # inclination in radians
+
+        n = np.sqrt(GM_EARTH / a**3)  # mean motion in rad/s
+
+        raan_dot = -1.5 * J2_EARTH * (R_EARTH / a)**2 * n * np.cos(i) / (1 - e**2)**2
+
+        return raan_dot
+    
+    # get satellite argument of perigee precession rate
+    def get_omega_precession_rate(self):
+        # Argument of perigee precession rate due to J2 perturbation (radians per second)
+        a = self.__OE_sat[0]  # semi-major axis in km
+        e = self.__OE_sat[1]  # eccentricity
+        i = self.__OE_sat[2]  # inclination in radians
+
+        n = np.sqrt(GM_EARTH / a**3)  # mean motion in rad/s
+
+        omega_dot = 0.75 * J2_EARTH * (R_EARTH / a)**2 * n * (4 - 5 * np.sin(i)**2) / (1 - e**2)**2
+
+        return omega_dot
 
     # check if a position vector is within satellite wake at current time
     def within_wake(self, pos_vec):
@@ -82,12 +107,11 @@ class Satellite:
         # transform ECI -> BF
         sat_to_pos_BF = self.__R_BF_to_ECI.T @ sat_to_pos_ECI
 
-        behind_back_plane = (self.__back_plane_normal_BF.dot(sat_to_pos_BF) - self.__d_back_BF) >= 0
-        behind_plane_1 = (self.__plane_normal_BF_1.dot(sat_to_pos_BF) - self.__d_1_BF) >= 0
-        behind_plane_2 = (self.__plane_normal_BF_2.dot(sat_to_pos_BF) - self.__d_2_BF) >= 0
-        behind_plane_3 = (self.__plane_normal_BF_3.dot(sat_to_pos_BF) - self.__d_3_BF) >= 0
-        behind_plane_4 = (self.__plane_normal_BF_4.dot(sat_to_pos_BF) - self.__d_4_BF) >= 0
-
+        behind_back_plane = (self.__back_plane_normal_BF @ (sat_to_pos_BF) - self.__d_back_BF) >= 0
+        behind_plane_1 = (self.__plane_normal_BF_1 @ sat_to_pos_BF - self.__d_1_BF) >= 0
+        behind_plane_2 = (self.__plane_normal_BF_2 @ sat_to_pos_BF - self.__d_2_BF) >= 0
+        behind_plane_3 = (self.__plane_normal_BF_3 @ sat_to_pos_BF - self.__d_3_BF) >= 0
+        behind_plane_4 = (self.__plane_normal_BF_4 @ sat_to_pos_BF - self.__d_4_BF) >= 0
         return behind_back_plane and behind_plane_1 and behind_plane_2 and behind_plane_3 and behind_plane_4
 
     # detect soliton presence at at least two different sensors at the current time
@@ -143,7 +167,7 @@ class Satellite:
         timesteps = np.linspace(soliton_generation_time, soliton_generation_time + soliton_lifetime, num_steps)
         
         # propagate satellite to soliton generation time
-        positions, velocities = self.__sat_orbit.propagate(soliton_generation_time + soliton_lifetime, teval=timesteps)
+        positions, velocities = self.__sat_orbit.propagate(soliton_generation_time + soliton_lifetime, teval=timesteps, use_J2=True)
 
         for idx, t in enumerate(timesteps):
             # update satellite state
