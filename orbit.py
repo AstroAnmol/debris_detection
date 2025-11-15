@@ -139,7 +139,7 @@ class Orbit:
             self.__SV_to_OE()
             return r_t, v_t
 
-    def plot_orbit_3D(self, teval=None):
+    def plot_orbit_2BP(self, teval=None):
         if teval is None:
             teval = np.linspace(0, self.__time_period, 500)
         
@@ -327,4 +327,17 @@ def plot_multiple_orbits(orbits, labels=None, samples=500, show_earth=True, lege
     if legend:
         ax.legend()
 
+    plt.show()
+
+def plot_orbit_positions(positions):
+    """plots 3D positions of an orbit given position array"""
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label='Orbit Path')
+    ax.scatter(0, 0, 0, color='yellow', label='Central Body (Earth)')
+    ax.set_xlabel('X (km)')
+    ax.set_ylabel('Y (km)')
+    ax.set_zlabel('Z (km)')
+    ax.set_title('3D Orbit Plot')
+    ax.legend()
     plt.show()
