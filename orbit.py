@@ -80,7 +80,14 @@ class Orbit:
         return self.__time_period
 
     # propagation using odeint
-    def propagate(self, delta_t, teval=None, method='odeint'):
+    def propagate(self, delta_t, teval=None, method='odeint', use_J2=False):
+        """Propagate the orbit over a time interval delta_t.
+        returns position and velocity arrays at specified times.
+        Args:
+            delta_t (float): Time interval to propagate (s).
+            teval (np.array): Optional array of times to evaluate (s).
+            method (str): Integration method ('odeint' or 'solve_ivp').
+            use_J2 (bool): Whether to include J2 perturbation in the propagation."""
         r0 = self.__position
         v0 = self.__velocity
         state0 = np.hstack((r0, v0))
@@ -91,13 +98,18 @@ class Orbit:
         r_t = None
         v_t = None
 
+        if use_J2:
+            EoM_func = self.__EoM_J2
+        else:
+            EoM_func = self.__EoM_2BP
+
         if teval is None:
             if method == 'odeint':
-                state_t = odeint(self.__EoM_2BP, state0, t_span)
+                state_t = odeint(EoM_func, state0, t_span)
                 r_t_1 = state_t[-1, 0:3]
                 v_t_1 = state_t[-1, 3:6]
             elif method == 'solve_ivp':
-                sol = solve_ivp(self.__EoM_2BP, t_span, state0, rtol=1e-9, atol=1e-12)
+                sol = solve_ivp(EoM_func, t_span, state0, rtol=1e-9, atol=1e-12)
                 r_t_1 = sol.y[0:3, -1]
                 v_t_1 = sol.y[3:6, -1]
             else:
@@ -112,11 +124,11 @@ class Orbit:
             return r_t, v_t
         else:
             if method == 'odeint':
-                state_t = odeint(self.__EoM_2BP, state0, teval)
+                state_t = odeint(EoM_func, state0, teval)
                 r_t = state_t[:, 0:3]
                 v_t = state_t[:, 3:6]
             elif method == 'solve_ivp':
-                sol = solve_ivp(self.__EoM_2BP, t_span, state0, t_eval=teval, rtol=1e-9, atol=1e-12)
+                sol = solve_ivp(EoM_func, t_span, state0, t_eval=teval, rtol=1e-9, atol=1e-12)
                 r_t = sol.y[0:3, :].T
                 v_t = sol.y[3:6, :].T
             else:
@@ -159,6 +171,24 @@ class Orbit:
         a = -mu * r / r_norm**3
         return np.hstack((v, a))
     
+    def __EoM_J2(self, y, t):
+        r = y[:3]
+        v = y[3:]
+        mu = self.__mu
+        r_norm = np.linalg.norm(r)
+
+        # J2 perturbation
+        z2 = r[2]**2
+        r2 = r_norm**2
+        factor = (3/2) * J2_EARTH * (R_EARTH**2) * mu / (r_norm**5)
+        ax_J2 = factor * r[0] * (5 * z2 / r2 - 1)
+        ay_J2 = factor * r[1] * (5 * z2 / r2 - 1)
+        az_J2 = factor * r[2] * (5 * z2 / r2 - 3)
+
+        a_gravity = -mu * r / r_norm**3
+        a_total = a_gravity + np.array([ax_J2, ay_J2, az_J2])
+
+        return np.hstack((v, a_total))
 
     # function to convert orbital elements to state vectors
     def __OE_to_SV(self):
