@@ -75,7 +75,9 @@ class Satellite:
 
     # check satellite raan precession rate
     def get_raan_precession_rate(self):
-        # RAAN precession rate due to J2 perturbation (radians per second)
+        """
+         Returns the RAAN precession rate due to J2 perturbation in number of days for 360 degrees."""
+        
         a = self.__OE_sat[0]  # semi-major axis in km
         e = self.__OE_sat[1]  # eccentricity
         i = self.__OE_sat[2]  # inclination in radians
@@ -84,11 +86,15 @@ class Satellite:
 
         raan_dot = -1.5 * J2_EARTH * (R_EARTH / a)**2 * n * np.cos(i) / (1 - e**2)**2
 
-        return raan_dot
+        raan_dot_deg_per_day = np.degrees(raan_dot) * 86400
+        time_to_precess_full_range = 360 / raan_dot_deg_per_day
+
+        return time_to_precess_full_range
     
     # get satellite argument of perigee precession rate
     def get_omega_precession_rate(self):
-        # Argument of perigee precession rate due to J2 perturbation (radians per second)
+        """
+         Returns the argument of perigee precession rate due to J2 perturbation in number of days for 360 degrees."""
         a = self.__OE_sat[0]  # semi-major axis in km
         e = self.__OE_sat[1]  # eccentricity
         i = self.__OE_sat[2]  # inclination in radians
@@ -97,7 +103,10 @@ class Satellite:
 
         omega_dot = 0.75 * J2_EARTH * (R_EARTH / a)**2 * n * (4 - 5 * np.sin(i)**2) / (1 - e**2)**2
 
-        return omega_dot
+        omega_dot_deg_per_day = np.degrees(omega_dot) * 86400
+        time_to_precess_full_range = 360 / omega_dot_deg_per_day
+
+        return time_to_precess_full_range
 
     # check if a position vector is within satellite wake at current time
     def within_wake(self, pos_vec):
