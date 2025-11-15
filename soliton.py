@@ -1,5 +1,5 @@
 import numpy as np
-
+from constants import *
 class Soliton:
     def __init__(self):
         # initialize instance attributes (defualt values)
@@ -8,19 +8,22 @@ class Soliton:
         self.__vel_multiplier = 1.2 # Velocity multiplier for soliton
 
         # placeholder debris attributes
+        self.__time_of_generation = 0.0 # Time of soliton generation in s
         self.__debris_pos_vec = np.zeros(3) # Debris position vector in km 
         self.__debris_vel_vec = np.zeros(3) # Debris velocity vector in km/s
+
         self.__sol_vel_vec = self.__debris_vel_vec * self.__vel_multiplier # Soliton velocity vector in km/s
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec) # Time to reach cone base in s
         
     
     # alternative constructor
     @classmethod
-    def from_parameters(cls, angle, height, vel_multiplier, pos_vec, vel_vec):
+    def from_parameters(cls, angle, height, vel_multiplier, time_of_generation, pos_vec, vel_vec):
         obj = cls()
         obj.__cone_angle = angle
         obj.__cone_height = height
         obj.__vel_multiplier = vel_multiplier
+        obj.__time_of_generation = time_of_generation
         obj.__debris_pos_vec = pos_vec
         obj.__debris_vel_vec = vel_vec
         obj.__sol_vel_vec = vel_vec * vel_multiplier
@@ -36,7 +39,8 @@ class Soliton:
         self.__sol_vel_vec = self.__debris_vel_vec * self.__vel_multiplier
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec)
 
-    def set_debris_state(self, pos_vec, vel_vec):
+    def set_debris_state(self, time_of_generation, pos_vec, vel_vec):
+        self.__time_of_generation = time_of_generation
         self.__debris_pos_vec = pos_vec
         self.__debris_vel_vec = vel_vec
         self.__sol_vel_vec = vel_vec * self.__vel_multiplier
@@ -74,20 +78,19 @@ class Soliton:
         return within_height and within_angle and same_side
 
     # check if within spherical shell at time t
-    def within_spherical_shell(self, pos_vec, t, detection_freq):
+    def within_spherical_shell(self, pos_vec, t):
         """Check if a given position vector is within the soliton spherical shell at time t.
         Args:
             pos_vec (np.array): Position vector to check (3D).
             t (float): Time in seconds.
-            detection_frequency (float): Detection frequency in Hz.
         Returns:
             bool: True if within spherical shell, False otherwise."""
         
         # Calculate current radius of soliton shell
-        shell_radius = np.linalg.norm(self.__sol_vel_vec) * t       
-        shell_thickness = np.linalg.norm(self.__sol_vel_vec) / detection_freq
+        shell_radius = np.linalg.norm(self.__sol_vel_vec) * (t - self.__time_of_generation)
+        shell_thickness = SOL_SHELL_THICKNESS  # Define shell thickness constant (e.g., 1 km)
 
         # Distance from debris position to point
         apex_to_point = np.linalg.norm(pos_vec - self.__debris_pos_vec)
 
-        return apex_to_point >= (shell_radius - shell_thickness) and apex_to_point <= (shell_radius + shell_thickness)
+        return apex_to_point >= (shell_radius - shell_thickness/2) and apex_to_point <= (shell_radius + shell_thickness/2)
