@@ -1,6 +1,7 @@
 import numpy as np
 from constants import *
 from collections import namedtuple
+from satellite import Satellite
 
 # Define a named tuple for orbital elements
 OrbitalElements = namedtuple('OrbitalElements', ['a', 'e', 'i', 'Omega', 'omega', 'nu'])
@@ -170,3 +171,79 @@ class MonteCarlo:
         self.__altitude_GMM = altitude_GMM
         self.__e_lN_mu = e_lN_mu
         self.__e_lN_std = e_lN_std
+
+
+
+def generate_forced_debris(r_sat_eci, v_sat_eci, num_samples=100, search_radius_km=100):
+    """
+    Generates N debris particles guaranteed to be within search_radius_km.
+    Returns: debris_states (N x 6 matrix of position and velocity)
+    """
+    
+    debris_list = []
+    
+    # 1. Calculate Local Vertical / Local Horizontal (LVLH) Basis Vectors
+    # This helps us orient the debris velocity correctly relative to the ground
+    r_mag = np.linalg.norm(r_sat_eci)
+    h_vec = np.cross(r_sat_eci, v_sat_eci)
+    
+    # Unit vectors for the local frame
+    u_radial = r_sat_eci / r_mag                  # Up (Zenith)
+    u_cross  = h_vec / np.linalg.norm(h_vec)      # Out of plane
+    u_along  = np.cross(u_cross, u_radial)        # Along track (Horizon)
+    
+    for _ in range(num_samples):
+        # --- A. POSITION GENERATION ---
+        # Generate random point in a sphere
+        # (Using uniform sphere sampling to avoid clumping at center)
+        u = np.random.uniform(0, 1)
+        v = np.random.uniform(0, 1)
+        theta = 2 * np.pi * u
+        phi = np.arccos(2 * v - 1)
+        r = search_radius_km * (np.random.uniform(0, 1)**(1/3))
+        
+        # Convert spherical offset to Cartesian offset
+        dx = r * np.sin(phi) * np.cos(theta)
+        dy = r * np.sin(phi) * np.sin(theta)
+        dz = r * np.cos(phi)
+        
+        r_deb = r_sat_eci + np.array([dx, dy, dz])
+        r_deb_mag = np.linalg.norm(r_deb)
+        
+        # --- B. VELOCITY GENERATION ---
+        # We want the debris to be in a realistic orbit.
+        # Assumption: Most debris is roughly circular (e ~ 0).
+        
+        # 1. Calculate speed required for circular orbit at this specific altitude
+        v_mag = np.sqrt(GM_EARTH / r_deb_mag)
+        
+        # 2. Determine Direction (The Crossing Angle)
+        # We rotate the velocity vector in the "Local Horizontal" plane.
+        # This simulates debris coming from different Inclinations.
+        
+        # Pick a random "Crossing Angle" (Azimuth) in the local horizon
+        # 0 deg = Moving same direction as sat
+        # 90 deg = 90 deg plane change intersection
+        # 180 deg = Head on
+        # Realistically, debris comes from ANY inclination.
+        crossing_angle = np.random.uniform(0, 2*np.pi)
+        
+        # Construct the velocity vector in the LVLH frame
+        # It has 0 radial component (circular orbit assumption)
+        v_local_radial = 0
+        v_local_along  = v_mag * np.cos(crossing_angle)
+        v_local_cross  = v_mag * np.sin(crossing_angle)
+        
+        # Rotate back to ECI Frame
+        v_deb = (v_local_radial * u_radial) + \
+                (v_local_along  * u_along) + \
+                (v_local_cross  * u_cross)
+        
+        # (Optional) Add slight random noise to v_deb to simulate eccentricity
+        v_deb += np.random.normal(0, 0.1, 3) # 100 m/s noise
+        
+        # Store State
+        state = np.concatenate([r_deb, v_deb])
+        debris_list.append(state)
+        
+    return np.array(debris_list)
