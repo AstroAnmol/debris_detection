@@ -260,9 +260,9 @@ class Soliton:
             self.plot_soliton(ax, t, **kwargs)
             
             # Set limits
-            # ax.set_xlim(center[0] - extent, center[0] + extent)
-            # ax.set_ylim(center[1] - extent, center[1] + extent)
-            # ax.set_zlim(center[2] - extent, center[2] + extent)
+            ax.set_xlim(center[0] - extent, center[0] + extent)
+            ax.set_ylim(center[1] - extent, center[1] + extent)
+            ax.set_zlim(center[2] - extent, center[2] + extent)
             
             ax.set_title(f"Soliton at t={t:.2f}s")
             ax.set_xlabel("X (km)")
@@ -270,6 +270,10 @@ class Soliton:
             ax.set_zlabel("Z (km)")
             
         anim = FuncAnimation(fig, update, frames=times, interval=interval)
-        return anim
+        if save_path:
+            anim.save(save_path, writer='pillow')
+        else:
+            plt.show()
+        return None
 
     
