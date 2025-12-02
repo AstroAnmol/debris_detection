@@ -73,6 +73,7 @@ class Orbit:
     
     # function to return state vectors as numpy array
     def get_SV(self):
+        """Returns the state vectors as a numpy array [position, velocity]."""
         SV_array = np.array([self.__position, self.__velocity])
         return SV_array
     
@@ -278,6 +279,46 @@ class Orbit:
             self.__true_anomaly = 2 * np.pi - self.__true_anomaly
 
         return None
+    
+        # check satellite raan precession rate
+    def get_raan_precession_rate(self):
+        """
+         Returns the RAAN precession rate due to J2 perturbation in radians per second."""
+        
+        a = self.__a  # semi-major axis in km
+        e = self.__e  # eccentricity
+        i = self.__i  # inclination in radians
+
+        n = np.sqrt(GM_EARTH / a**3)  # mean motion in rad/s
+
+        raan_dot = -1.5 * J2_EARTH * (R_EARTH / a)**2 * n * np.cos(i) / (1 - e**2)**2
+
+        return raan_dot
+    
+    # get satellite argument of perigee precession rate
+    def get_omega_precession_rate(self):
+        """
+         Returns the argument of perigee precession rate due to J2 perturbation in radians per second."""
+        a = self.__a  # semi-major axis in km
+        e = self.__e  # eccentricity
+        i = self.__i  # inclination in radians
+
+        n = np.sqrt(GM_EARTH / a**3)  # mean motion in rad/s
+
+        omega_dot = 0.75 * J2_EARTH * (R_EARTH / a)**2 * n * (4 - 5 * np.sin(i)**2) / (1 - e**2)**2
+
+        return omega_dot
+    
+    def get_precession_time_cycle(self):
+        """
+        Returns the time for a full 360-degree precession cycle for both RAAN and argument of perigee in seconds."""
+        raan_rate = self.get_raan_precession_rate()
+        omega_rate = self.get_omega_precession_rate()
+
+        relative_rate = abs(raan_rate - omega_rate)
+        time_for_full_cycle = 2 * np.pi / relative_rate
+
+        return time_for_full_cycle
 
 def plot_multiple_orbits(orbits, labels=None, samples=500, show_earth=True, legend=True):
     """
