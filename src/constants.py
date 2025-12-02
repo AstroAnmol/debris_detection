@@ -27,7 +27,7 @@ ANGLE_MIN = 0.0
 ANGLE_MAX = 2 * np.pi
 
 # Soliton parameters
-SOL_SHELL_THICKNESS = 0.1e-06  # .1 cm 
+SOL_SHELL_THICKNESS = 1e-06  # 1 cm 
 
 # Detection frequency (Hz)
-DETECTION_FREQ = 10e+03  # 10 kHz
+DETECTION_FREQ = 1000  # 10 kHz
