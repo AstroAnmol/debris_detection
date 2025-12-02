@@ -3,7 +3,7 @@ from scipy.integrate import odeint, solve_ivp
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-from constants import *
+from src.constants import *
 
 class Orbit:
     

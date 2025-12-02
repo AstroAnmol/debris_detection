@@ -1,7 +1,7 @@
 import numpy as np
-from constants import *
+from src.constants import *
 from collections import namedtuple
-from satellite import Satellite
+from src.satellite import Satellite
 
 # Define a named tuple for orbital elements
 OrbitalElements = namedtuple('OrbitalElements', ['a', 'e', 'i', 'Omega', 'omega', 'nu'])
