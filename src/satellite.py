@@ -1,6 +1,6 @@
 import numpy as np
 from src.orbit import Orbit
-from src.soliton import Soliton
+# from src.soliton import Soliton
 from src.constants import *
 
 from scipy.spatial import ConvexHull
@@ -39,6 +39,7 @@ class Satellite:
         self.__sat_orbit = Orbit.from_OE(np.array(self.__OE_sat))
 
         # initial position and velocity at time 0
+        self.__time = 0.0 # current time in seconds
         self.__position0 = self.__sat_orbit.get_SV()[0]
         self.__velocity0 = self.__sat_orbit.get_SV()[1]
 
@@ -48,12 +49,6 @@ class Satellite:
 
         # compute rotation and sensor positions using the instance method
         self.__BF_to_ECI()
-
-        # # sensor positions in ECI frame
-        # self.__sensor_1_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensors_BF[0]
-        # self.__sensor_2_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensors_BF[1]
-        # self.__sensor_3_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensors_BF[2]
-        # self.__sensor_4_ECI = self.__position + self.__R_BF_to_ECI @ self.__sensors_BF[3]
 
         # wake parameters
         self.__plane_angle = 20.0 * np.pi / 180.0
@@ -106,20 +101,24 @@ class Satellite:
         self.__sat_orbit = Orbit.from_SV(np.array([self.__position0, self.__velocity0]))
         self.__BF_to_ECI()
 
-    # # check if a position vector is within satellite wake at current time
-    # def within_wake(self, pos_vec):
-    #     # convert vector from satellite center to point (ECI) into body-frame coordinates
-    #     sat_to_pos_ECI = pos_vec - self.__position
-        
-    #     # transform ECI -> BF
-    #     sat_to_pos_BF = self.__R_BF_to_ECI.T @ sat_to_pos_ECI
+    # check if a position vector (ECI) is within satellite wake at current time
+    def within_wake(self, pos_vec):
+        """
+        Check if a given position vector (in ECI frame) is within the satellite's wake at the current time.
+        Args:
+            pos_vec (np.array): Position vector in ECI frame.
+        Returns:
+            bool: True if the position is within the wake, False otherwise.
+        """
+        # convert position vector to body frame
+        pos_vec_BF =self.pos_ECI2BF(pos_vec)
 
-    #     behind_back_plane = (self.__wake_back_plane_normal_BF @ (sat_to_pos_BF) - self.__wake_d_back_BF) >= 0
-    #     behind_plane_1 = (self.__wake_planes_normal_BF[0] @ sat_to_pos_BF - self.__wake_d_planes_BF[0]) >= 0
-    #     behind_plane_2 = (self.__wake_planes_normal_BF[1] @ sat_to_pos_BF - self.__wake_d_planes_BF[1]) >= 0
-    #     behind_plane_3 = (self.__wake_planes_normal_BF[2] @ sat_to_pos_BF - self.__wake_d_planes_BF[2]) >= 0
-    #     behind_plane_4 = (self.__wake_planes_normal_BF[3] @ sat_to_pos_BF - self.__wake_d_planes_BF[3]) >= 0
-    #     return behind_back_plane and behind_plane_1 and behind_plane_2 and behind_plane_3 and behind_plane_4
+        behind_back_plane = (self.__wake_back_plane_normal_BF @ (pos_vec_BF) - self.__wake_d_back_BF) >= 0
+        behind_plane_1 = (self.__wake_planes_normal_BF[0] @ pos_vec_BF - self.__wake_d_planes_BF[0]) >= 0
+        behind_plane_2 = (self.__wake_planes_normal_BF[1] @ pos_vec_BF - self.__wake_d_planes_BF[1]) >= 0
+        behind_plane_3 = (self.__wake_planes_normal_BF[2] @ pos_vec_BF - self.__wake_d_planes_BF[2]) >= 0
+        behind_plane_4 = (self.__wake_planes_normal_BF[3] @ pos_vec_BF - self.__wake_d_planes_BF[3]) >= 0
+        return behind_back_plane and behind_plane_1 and behind_plane_2 and behind_plane_3 and behind_plane_4
 
     # # detect soliton presence at at least two different sensors at the current time
     # def __detect_type1_time(self, soliton):
@@ -130,14 +129,14 @@ class Satellite:
     #         # if debris is within wake, sensors aren't checked
     #         pass
     #     else:
-    #         sensor_1_detected = (soliton.within_cone(self.__sensor_1_ECI) and
-    #                             soliton.within_spherical_shell(self.__sensor_1_ECI, self.__time))
-    #         sensor_2_detected = (soliton.within_cone(self.__sensor_2_ECI) and
-    #                             soliton.within_spherical_shell(self.__sensor_2_ECI, self.__time))
-    #         sensor_3_detected = (soliton.within_cone(self.__sensor_3_ECI) and
-    #                             soliton.within_spherical_shell(self.__sensor_3_ECI, self.__time))
-    #         sensor_4_detected = (soliton.within_cone(self.__sensor_4_ECI) and
-    #                             soliton.within_spherical_shell(self.__sensor_4_ECI, self.__time))
+    #         sensors_ECI = np.array([self.pos_BF2ECI(self.__sensors_BF[0]),
+    #                                 self.pos_BF2ECI(self.__sensors_BF[1]),
+    #                                 self.pos_BF2ECI(self.__sensors_BF[2]),
+    #                                 self.pos_BF2ECI(self.__sensors_BF[3])])
+    #         sensor_1_detected = (soliton.within_soliton_shell(sensors_ECI[0], self.__time))
+    #         sensor_2_detected = (soliton.within_soliton_shell(sensors_ECI[1], self.__time))
+    #         sensor_3_detected = (soliton.within_soliton_shell(sensors_ECI[2], self.__time))
+    #         sensor_4_detected = (soliton.within_soliton_shell(sensors_ECI[3], self.__time))
 
     #         if sensor_1_detected:
     #             print(f"Sensor 1 detected soliton at time {self.__time} seconds.")
@@ -158,6 +157,7 @@ class Satellite:
     #             print(f"Type-1 detection: {sensor_count} sensors detected at time {self.__time} (total detections={self.__T_detections}, type1_events={self.__type1_detections})")
     #         else:
     #             detected = False
+    #             print(f"No type-1 detection at time {self.__time}: only {sensor_count} sensors detected.")
 
     #     return detected
     
@@ -176,6 +176,9 @@ class Satellite:
     #     # propagate satellite to soliton generation time
     #     positions, velocities = self.__sat_orbit.propagate(soliton_generation_time + soliton_lifetime, teval=timesteps, use_J2=True)
 
+    #     print("--------------------------------")
+    #     print(f"Checking soliton detection from time {soliton_generation_time} to "
+    #           f"{soliton_generation_time + soliton_lifetime} seconds over {num_steps} steps.")
     #     for idx, t in enumerate(timesteps):
     #         # update satellite state
     #         self.__time = t
@@ -183,7 +186,8 @@ class Satellite:
     #         self.__velocity = velocities[idx]
     #         # update sensor positions and rotation matrix
     #         self.__BF_to_ECI()
-
+    #         print(f"Satellite position at time {t} seconds: {self.__position}, velocity: {self.__velocity}")
+    #         # check detection at this time
     #         if self.__detect_type1_time(soliton):
     #             detected = True
     #             break
@@ -199,10 +203,20 @@ class Satellite:
     def pos_ECI2BF(self, pos_ECI):
         """Convert a position vector from ECI frame to body frame."""
         return self.__R_BF_to_ECI.T @ (pos_ECI - self.__position0)
+    
+    def vec_ECI2BF(self, vec_ECI):
+        """Convert a vector from ECI frame to body frame."""
+        return self.__R_BF_to_ECI.T @ vec_ECI
+    
+    def vec_BF2ECI(self, vec_BF):
+        """Convert a vector from body frame to ECI frame."""
+        return self.__R_BF_to_ECI @ vec_BF
 
     # define rotation matrix from body frame to ECI frame based on current satellite position and velocity
     # and update all sensor positions in ECI frame
     def __BF_to_ECI(self):
+        """Compute the rotation matrix from Body Frame to ECI frame based on current position and velocity.
+        Updates the internal rotation matrix attribute."""
         # Body frame in ECI frame (3x3 rotation)
         sat_x_BF = self.__velocity / np.linalg.norm(self.__velocity) if np.linalg.norm(self.__velocity) != 0 else np.array([1.0, 0.0, 0.0])
         sat_z_BF = -self.__position / np.linalg.norm(self.__position) if np.linalg.norm(self.__position) != 0 else np.array([0.0, 0.0, 1.0])
