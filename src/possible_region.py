@@ -355,7 +355,7 @@ def possible_region(points, t, H, theta_deg,
                                       wake_back_n, wake_back_d, 
                                       wake_side_n, wake_side_d,
                                       sat_corners=None, 
-                                      grid_res=20, padding=1.5, if_plot=True):
+                                      grid_res=20, padding=1.5, plot_name=None):
     """
     Plot intersection of possible regions for 4 points, removing the wake region.
     """
@@ -449,7 +449,7 @@ def possible_region(points, t, H, theta_deg,
     print(f"Valid region: {valid_points}/{total_points} points ({percentage:.2f}%)")
 
     # Plot only if requested
-    if not if_plot:
+    if plot_name is None:
         return percentage
     
     fig = plt.figure(figsize=(10, 8))
@@ -494,19 +494,17 @@ def possible_region(points, t, H, theta_deg,
     ax.set_title(f'Intersection with Wake Removal\nt={t*1000} m, H={H*1000} m, theta={theta_deg} deg')
     ax.legend()
     
-    # plt.savefig('possible_region_wake_removed.png')
-    # print("Plot saved to possible_region_wake_removed.png")
-    plt.show()
+    plt.savefig(f'{plot_name}.png')
+    plt.close(fig)
+    print(f"Saved plot to {plot_name}.png")
+    # plt.show()
     return percentage
 
 if __name__ == "__main__":
     sat_size = np.array([ 0.03, 0.02, 0.02 ]) * 1e-3 # 3 X 2 X 2 cm (in km)
     boom_length = 1 * 1e-3 # 1 m (in km)
     corners_BF = np.array([[ 1, 1, 1],[ 1,-1, 1],[ 1,-1,-1],[ 1, 1,-1]]) * sat_size / 2
-    sensors_BF = corners_BF + boom_length * np.array([[ 1, 1, 1],[ 1,-1, 1],[ 1,-1,-1],[ 1, 1,-1]]) / np.sqrt(3)
-    
-    points = sensors_BF
-    
+
     thickness = 0.001 # km    
     cone_height = 0.01 # km
     cone_angle_deg = 45 # degrees
@@ -530,13 +528,42 @@ if __name__ == "__main__":
             sat_size[0] / 2 * np.sin(plane_angle) - sat_size[1] / 2 * np.cos(plane_angle)
         ])
     
+    # sensor positions in Body Frame
+    # vary angle with x between 0 to 90 deg
+    # angle with y and z is fixed at 45 deg
+    
+    angles = range(0, 91, 5)
+    percentages = []
+    for angle_deg in angles:
+        sin_angle = np.sin(np.deg2rad(angle_deg))
+        cos_angle = np.cos(np.deg2rad(angle_deg))
+
+        sensors_BF = corners_BF + boom_length * np.array([[ cos_angle, sin_angle/np.sqrt(2), sin_angle/np.sqrt(2)],
+                                                          [ cos_angle,-sin_angle/np.sqrt(2), sin_angle/np.sqrt(2)],
+                                                          [ cos_angle,-sin_angle/np.sqrt(2), -sin_angle/np.sqrt(2)],
+                                                          [ cos_angle, sin_angle/np.sqrt(2), -sin_angle/np.sqrt(2)]])
+    
+        points = sensors_BF
+    
+
     # plot_possible_regions(points[0], points[1], thickness, cone_height, cone_angle_deg, grid_res=100, padding=2.0)
     # plot_four_points_intersection(points, thickness, cone_height, cone_angle_deg, grid_res=30, padding=2.0)
     
-    percentage = possible_region(points, thickness, cone_height, cone_angle_deg,
+        percentage = possible_region(points, thickness, cone_height, cone_angle_deg,
                                       wake_back_plane_normal_BF, wake_d_back_BF,
                                       wake_planes_normal_BF, wake_d_planes_BF,
                                       sat_corners=corners_BF,
-                                      grid_res=100, padding=1.0, if_plot=False)
-    
-    print(f"Valid region percentage after wake removal: {percentage:.4f}%")
+                                      grid_res=50, padding=1.0, plot_name=f'possible_region_angle_{angle_deg}')
+        
+        percentages.append(percentage)
+    # print(f"Valid region percentage after wake removal: {percentage:.4f}%")
+
+    # Plot percentage vs angle
+    plt.figure(figsize=(8,6))
+    plt.plot(angles, percentages, marker='o')
+    plt.xlabel('Sensor Boom Angle (degrees)')
+    plt.ylabel('Valid Possible Region (%)')
+    plt.title('Valid Possible Region vs Sensor Boom Angle')
+    plt.grid(True)
+    # plt.savefig('valid_region_vs_angle.png')
+    plt.show()
