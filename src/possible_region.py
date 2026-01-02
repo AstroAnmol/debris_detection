@@ -228,20 +228,6 @@ def plot_four_points_intersection(points, t, H, theta_deg, grid_res=20, padding=
     
     # plt.savefig('possible_region_intersection.png')
     # print("Plot saved to possible_region_intersection.png")
-    # Plot Satellite and Wake
-    # Assuming we are in Body Frame, so R is Identity and position is origin
-    R_BF_to_ECI = np.eye(3)
-    position = np.zeros(3)
-    
-    # Reconstruct corners from points (sensors) if not passed, but better to pass them.
-    # For now, we'll just use the wake planes to plot the wake.
-    # To plot the satellite body, we need its dimensions or corners.
-    # Let's update the function signature to accept satellite geometry or just pass it in kwargs?
-    # Or we can just rely on the wake planes for the wake and skip the body if not provided?
-    # The user asked to include "satellite body and wake planes".
-    # So I should pass the body info.
-    
-    # But first, let's define the helper functions and then call a new plotting function here.
     pass
 
 def get_intersection_vertices(normals, constants, R_BF_to_ECI, limit=0.001):
@@ -338,23 +324,7 @@ def plot_satellite_geometry(ax, corners_BF, sensors_BF, wake_normals, wake_const
         [corners_BF[4], corners_BF[5]], [corners_BF[5], corners_BF[6]], [corners_BF[6], corners_BF[7]], [corners_BF[7], corners_BF[4]], # Bottom face (z-)
         [corners_BF[0], corners_BF[6]], [corners_BF[1], corners_BF[7]], [corners_BF[2], corners_BF[4]], [corners_BF[3], corners_BF[5]]  # Vertical edges (connecting top/bottom) - Wait, indices need to match geometry
     ]
-    # Re-verify indices from archive/satellite.py
-    # 0: (+,+,+), 1: (+,-,+), 2: (+,-,-), 3: (+,+,-) -> This is actually a face with constant x? No.
-    # 0: x/2, y/2, z/2
-    # 1: x/2, -y/2, z/2
-    # 2: x/2, -y/2, -z/2
-    # 3: x/2, y/2, -z/2
-    # These 4 are on x = +size/2 face.
-    # 4,5,6,7 are negatives of these.
-    # 4: -x/2, -y/2, -z/2
-    # 5: -x/2, y/2, -z/2
-    # 6: -x/2, y/2, z/2
-    # 7: -x/2, -y/2, z/2
-    
-    # Edges from archive/satellite.py:
-    # [0,1], [1,2], [2,3], [3,0] -> Face at x+
-    # [4,5], [5,6], [6,7], [7,4] -> Face at x-
-    # [0,6], [1,7], [2,4], [3,5] -> Connecting edges
+
     
     edges_indices = [
         [0,1], [1,2], [2,3], [3,0],
@@ -365,12 +335,7 @@ def plot_satellite_geometry(ax, corners_BF, sensors_BF, wake_normals, wake_const
     edges_coords = [[corners_BF[i], corners_BF[j]] for i, j in edges_indices]
     lc = Line3DCollection(edges_coords, colors='tab:orange', linewidths=1)
     ax.add_collection3d(lc)
-    
-    # Plot Booms (Center to Sensor? Or Corner to Sensor?)
-    # archive/satellite.py: corners[0] -> sensor 1, etc.
-    # [corners[0], sensor_1], [corners[1], sensor_2], [corners[2], sensor_3], [corners[3], sensor_4]
-    # But wait, archive code uses corners[0]..corners[3] for sensors 1..4.
-    # Let's assume sensors_BF corresponds to corners_BF[0..3]
+
     
     boom_edges = []
     for i in range(4):
@@ -386,11 +351,11 @@ def plot_satellite_geometry(ax, corners_BF, sensors_BF, wake_normals, wake_const
     if verts is not None and len(verts) >= 3:
         plot_polyhedron(ax, verts)
 
-def plot_intersection_with_wake_removal(points, t, H, theta_deg, 
+def possible_region(points, t, H, theta_deg, 
                                       wake_back_n, wake_back_d, 
                                       wake_side_n, wake_side_d,
-                                      sat_corners=None, # Added
-                                      grid_res=20, padding=1.5):
+                                      sat_corners=None, 
+                                      grid_res=20, padding=1.5, if_plot=True):
     """
     Plot intersection of possible regions for 4 points, removing the wake region.
     """
@@ -476,8 +441,17 @@ def plot_intersection_with_wake_removal(points, t, H, theta_deg,
                         wake_removed_count += 1
 
     print(f"Removed {wake_removed_count} points due to wake.")
+    
+    # Calculate percentage of valid points
+    total_points = grid_res**3
+    valid_points = np.sum(intersection_mask)
+    percentage = (valid_points / total_points) * 100
+    print(f"Valid region: {valid_points}/{total_points} points ({percentage:.2f}%)")
 
-    # Plot
+    # Plot only if requested
+    if not if_plot:
+        return percentage
+    
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
     
@@ -523,6 +497,7 @@ def plot_intersection_with_wake_removal(points, t, H, theta_deg,
     # plt.savefig('possible_region_wake_removed.png')
     # print("Plot saved to possible_region_wake_removed.png")
     plt.show()
+    return percentage
 
 if __name__ == "__main__":
     sat_size = np.array([ 0.03, 0.02, 0.02 ]) * 1e-3 # 3 X 2 X 2 cm (in km)
@@ -558,8 +533,10 @@ if __name__ == "__main__":
     # plot_possible_regions(points[0], points[1], thickness, cone_height, cone_angle_deg, grid_res=100, padding=2.0)
     # plot_four_points_intersection(points, thickness, cone_height, cone_angle_deg, grid_res=30, padding=2.0)
     
-    plot_intersection_with_wake_removal(points, thickness, cone_height, cone_angle_deg,
+    percentage = possible_region(points, thickness, cone_height, cone_angle_deg,
                                       wake_back_plane_normal_BF, wake_d_back_BF,
                                       wake_planes_normal_BF, wake_d_planes_BF,
                                       sat_corners=corners_BF,
-                                      grid_res=100, padding=1.0)
+                                      grid_res=100, padding=1.0, if_plot=False)
+    
+    print(f"Valid region percentage after wake removal: {percentage:.4f}%")
