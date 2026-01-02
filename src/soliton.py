@@ -2,6 +2,19 @@ import numpy as np
 from src.constants import *
 
 class Soliton:
+    """
+    Class representing a soliton debris cloud generated from a debris object.
+    The soliton is modeled as a conical shell expanding from the debris position
+    at a velocity scaled from the debris velocity.
+    Attributes:
+        __cone_angle (float): Cone angle in radians.
+        __cone_height (float): Height of the cone in km.
+        __vel_multiplier (float): Velocity multiplier for soliton.
+        __time_of_generation (float): Time of soliton generation in seconds.
+        __debris_pos_vec (np.array): Debris position vector in km (3D).
+        __debris_vel_vec (np.array): Debris velocity vector in km/s (3D).
+
+    """
     def __init__(self):
         # initialize instance attributes (defualt values)
         self.__cone_angle = np.deg2rad(45) # Cone angle in radians
@@ -16,6 +29,7 @@ class Soliton:
 
         self.__sol_vel_vec = self.__debris_vel_vec * self.__vel_multiplier # Soliton velocity vector in km/s
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec) # Time to reach cone base in s
+        self.shell_thickness = 2/DETECTION_FREQ * np.linalg.norm(self.__sol_vel_vec)  # Thickness based on detection frequency
         
     
     # alternative constructor
@@ -35,36 +49,62 @@ class Soliton:
     # Public methods
 
     def set_params(self, angle, height, vel_multiplier):
+        """Set soliton parameters.
+        Args:
+            angle (float): Cone angle in radians.
+            height (float): Height of the cone in km.
+            vel_multiplier (float): Velocity multiplier for soliton.
+        """
         self.__cone_angle = angle
         self.__cone_height = height
         self.__vel_multiplier = vel_multiplier
         self.__sol_vel_vec = self.__debris_vel_vec * self.__vel_multiplier
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec)
 
+        return None
+
     def set_debris_state(self, time_of_generation, pos_vec, vel_vec):
+        """Set debris state vectors and time of generation.
+        Args:
+            time_of_generation (float): Time of soliton generation in seconds.
+            pos_vec (np.array): Debris position vector in km (3D).
+            vel_vec (np.array): Debris velocity vector in km/s (3D)."""
         self.__time_of_generation = time_of_generation
         self.__debris_pos_vec = pos_vec
         self.__debris_vel_vec = vel_vec
         self.__sol_vel_vec = vel_vec * self.__vel_multiplier
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec)
+
+        return None
     
     def get_velocity(self):
+        """Get soliton velocity vector."""
         return self.__sol_vel_vec
     
     def get_time_to_cone_base(self):
+        """Get time to reach cone base."""
         return self.__time_to_reach_cone_base
     
     def get_time_of_generation(self):
+        """Get time of soliton generation."""
         return self.__time_of_generation
     
     def get_debris_position(self):
+        """Get debris position vector."""
         return self.__debris_pos_vec
     
     # Detection functions 
 
     # Check if a position vector is within the soliton shell at time t(interaction of cone and two spheres)
-
-    # first check if within cone
+    def within_soliton_shell(self, pos_vec, t):
+        """Check if a given position vector is within the soliton shell at time t.
+        Args:
+            pos_vec (np.array): Position vector to check (3D).
+            t (float): Time in seconds.
+        """
+        return self.within_cone(pos_vec) and self.within_spherical_shell(pos_vec, t)
+    
+    # check if within cone
     def within_cone(self, pos_vec):
         """Check if a given position vector is within the soliton cone.
         Args:
@@ -96,12 +136,12 @@ class Soliton:
         
         # Calculate current radius of soliton shell
         shell_radius = np.linalg.norm(self.__sol_vel_vec) * (t - self.__time_of_generation)
-        shell_thickness = SOL_SHELL_THICKNESS  # Define shell thickness constant (e.g., 1 km)
-
+        # shell_thickness = SOL_SHELL_THICKNESS  # Define shell thickness constant (e.g., 1 km)
+        
         # Distance from debris position to point
         apex_to_point = np.linalg.norm(pos_vec - self.__debris_pos_vec)
 
-        return apex_to_point >= (shell_radius - shell_thickness/2) and apex_to_point <= (shell_radius + shell_thickness/2)
+        return apex_to_point >= (shell_radius - self.shell_thickness/2) and apex_to_point <= (shell_radius + self.shell_thickness/2)
 
     def plot_soliton(self, ax, t, plot_intersection=True, plot_cone=False, plot_shell=False):
         """
