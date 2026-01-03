@@ -46,6 +46,16 @@ class Soliton:
         obj.__time_to_reach_cone_base = obj.__cone_height / np.linalg.norm(obj.__sol_vel_vec)
         return obj
     
+    @classmethod
+    def from_debris_state(cls, deb_pos, deb_vel, time_of_generation):
+        obj = cls()
+        obj.__debris_pos_vec = deb_pos
+        obj.__debris_vel_vec = deb_vel
+        obj.__time_of_generation = time_of_generation
+        obj.__sol_vel_vec = deb_vel * obj.__vel_multiplier
+        obj.__time_to_reach_cone_base = obj.__cone_height / np.linalg.norm(obj.__sol_vel_vec)
+        return obj
+
     # Public methods
 
     def set_params(self, angle, height, vel_multiplier):

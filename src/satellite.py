@@ -1,8 +1,9 @@
 import numpy as np
 from src.orbit import Orbit
-# from src.soliton import Soliton
+from src.soliton import Soliton
 from src.constants import *
 
+from tqdm import tqdm
 from scipy.spatial import ConvexHull
 import itertools
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -120,81 +121,192 @@ class Satellite:
         behind_plane_4 = (self.__wake_planes_normal_BF[3] @ pos_vec_BF - self.__wake_d_planes_BF[3]) >= 0
         return behind_back_plane and behind_plane_1 and behind_plane_2 and behind_plane_3 and behind_plane_4
 
-    # # detect soliton presence at at least two different sensors at the current time
-    # def __detect_type1_time(self, soliton):
-    #     detected = False
-    #     debris_position = soliton.get_debris_position()
-    #     debris_within_wake = self.within_wake(debris_position)
-    #     if debris_within_wake:
-    #         # if debris is within wake, sensors aren't checked
-    #         pass
-    #     else:
-    #         sensors_ECI = np.array([self.pos_BF2ECI(self.__sensors_BF[0]),
-    #                                 self.pos_BF2ECI(self.__sensors_BF[1]),
-    #                                 self.pos_BF2ECI(self.__sensors_BF[2]),
-    #                                 self.pos_BF2ECI(self.__sensors_BF[3])])
-    #         sensor_1_detected = (soliton.within_soliton_shell(sensors_ECI[0], self.__time))
-    #         sensor_2_detected = (soliton.within_soliton_shell(sensors_ECI[1], self.__time))
-    #         sensor_3_detected = (soliton.within_soliton_shell(sensors_ECI[2], self.__time))
-    #         sensor_4_detected = (soliton.within_soliton_shell(sensors_ECI[3], self.__time))
+    def generate_debris_samples(self, num_samples, search_radius_km):
+        """Generate debris samples around the satellite's current position.
+            Ensures debris are outside the satellite wake.
+        Args:
+            num_samples (int): Number of debris samples to generate.
+            search_radius_km (float): Radius around the satellite to sample debris positions (km).
+            Returns:
+                list: List of valid debris sample positions and velocities in ECI frame.
+        """
 
-    #         if sensor_1_detected:
-    #             print(f"Sensor 1 detected soliton at time {self.__time} seconds.")
-    #         if sensor_2_detected:
-    #             print(f"Sensor 2 detected soliton at time {self.__time} seconds.")
-    #         if sensor_3_detected:
-    #             print(f"Sensor 3 detected soliton at time {self.__time} seconds.")
-    #         if sensor_4_detected:
-    #             print(f"Sensor 4 detected soliton at time {self.__time} seconds.")
-    #         # Require at least two sensors to report detection for a type-1 event
-    #         sensor_count = int(sensor_1_detected) + int(sensor_2_detected) + int(sensor_3_detected) + int(sensor_4_detected)
-    #         if sensor_count >= 2:
-    #             detected = True
-    #             # update counters
-    #             self.__T_detections += 1
-    #             # increment type1 event count (one event per time-step)
-    #             self.__type1_detections += 1
-    #             print(f"Type-1 detection: {sensor_count} sensors detected at time {self.__time} (total detections={self.__T_detections}, type1_events={self.__type1_detections})")
-    #         else:
-    #             detected = False
-    #             print(f"No type-1 detection at time {self.__time}: only {sensor_count} sensors detected.")
+        valid_samples = []
 
-    #     return detected
-    
-    # # check if a given soliton will be detected in type 1 scenario within soliton lifetime
-    # def detect_type1_soliton(self, soliton):
-    #     detected = False
+        while len(valid_samples) < num_samples:
+            # Generate a batch of random offsets in BODY FRAME
+            # Generate slightly more than needed (e.g. 2x) to account for rejection
+            batch_size = (num_samples - len(valid_samples)) * 2
+
+            # Random direction
+            u = np.random.uniform(0, 1, batch_size)
+            v = np.random.uniform(0, 1, batch_size)
+            theta = 2 * np.pi * u
+            phi = np.arccos(2 * v - 1)
+            r = search_radius_km * (np.random.uniform(0, 1, batch_size)**(1/3))
+
+            # Convert to Cartesian (Body Frame)
+            x = r * np.sin(phi) * np.cos(theta)
+            y = r * np.sin(phi) * np.sin(theta)
+            z = r * np.cos(phi)
+            
+            # Shape: (N, 3) matrix of random points
+            offsets_BF = np.vstack((x, y, z)).T
+
+            # WAKE CHECK
+            # Check 1: Back Plane
+            # We use broadcasting: (3,) @ (3, N) -> (N,)
+            check_back = (offsets_BF @ self.__wake_back_plane_normal_BF - self.__wake_d_back_BF) >= 0
+            
+            # Check 2-5: Side Planes
+            check_1 = (offsets_BF @ self.__wake_planes_normal_BF[0] - self.__wake_d_planes_BF[0]) >= 0
+            check_2 = (offsets_BF @ self.__wake_planes_normal_BF[1] - self.__wake_d_planes_BF[1]) >= 0
+            check_3 = (offsets_BF @ self.__wake_planes_normal_BF[2] - self.__wake_d_planes_BF[2]) >= 0
+            check_4 = (offsets_BF @ self.__wake_planes_normal_BF[3] - self.__wake_d_planes_BF[3]) >= 0
+            
+            # Combine: Point is in wake if ALL checks are True
+            in_wake_mask = check_back & check_1 & check_2 & check_3 & check_4
+            
+            # Keep only points where in_wake is FALSE
+            valid_offsets_BF = offsets_BF[~in_wake_mask]
+
+            # If we found nothing valid in this batch (unlikely), continue
+            if len(valid_offsets_BF) == 0:
+                continue
+
+            # CONVERT TO ECI
+            # Transform survivors from Body Frame to ECI
+            # R_BF_to_ECI shape (3,3). valid_offsets shape (M, 3). 
+            # Result = (R @ v.T).T
+            valid_offsets_ECI = (self.__R_BF_to_ECI @ valid_offsets_BF.T).T
+            
+            # Add to satellite position
+            r_sat_eci = self.__position # current sat position
+            r_deb_batch = r_sat_eci + valid_offsets_ECI
+            
+            # ASSIGN VELOCITY (LVLH Logic)
+            # Now that we have valid positions, we assign velocities
+            # calculate LVLH basis vectors for the satellite
+            h_vec = np.cross(self.__position, self.__velocity)
+            u_radial = self.__position / np.linalg.norm(self.__position)
+            u_cross = h_vec / np.linalg.norm(h_vec)
+            u_along = np.cross(u_cross, u_radial)
+            
+            
+            for i in range(len(r_deb_batch)):
+                # Stop if we have enough
+                if len(valid_samples) >= num_samples:
+                    break
+                
+                pos = r_deb_batch[i]
+                r_mag = np.linalg.norm(pos)
+                
+                # Circular velocity magnitude
+                v_mag = np.sqrt(GM_EARTH / r_mag)
+                
+                # Random crossing angle
+                angle = np.random.uniform(0, 2*np.pi)
+                
+                # Construct the velocity vector in the LVLH frame
+                # It has 0 radial component (circular orbit assumption)
+                v_local_radial = 0
+                v_local_along  = v_mag * np.cos(angle)
+                v_local_cross  = v_mag * np.sin(angle)
+                
+                # Rotate back to ECI Frame
+                v_eci = (v_local_radial * u_radial) + \
+                        (v_local_along  * u_along) + \
+                        (v_local_cross  * u_cross)
+                
+                # Add some small random noise to velocity (e.g., 100 m/s std dev)
+                v_eci += np.random.normal(0, 0.1, 3) # 100 m/s noise
+
+                # Store
+                valid_samples.append(np.concatenate([pos, v_eci]))
+            break # exit while loop after one batch for testing
+
+        return np.array(valid_samples)
+
+    def detection_sim(self, no_of_samples, final_time, search_radius_km):
+        '''
+        Monte Carlo simulation to generate random debris and check if the generated soliton is detected by the satellite.
+        All the solitons are generated at time t=0 for simplicity.
+        1. Generate random debris around the satellite
+        2. For each debris, generate a soliton from the debris state vectors
+        3. Check if the soliton is detected by the satellite sensors
+        4. Return the detection results with when and by which sensor
         
-    #     # get soliton information
-    #     soliton_lifetime = soliton.get_time_to_cone_base()
-    #     soliton_generation_time = soliton.get_time_of_generation()
+        Returns:
+            tuple: (debris_samples, detection_results)
+                - debris_samples: np.array of shape (no_of_samples, 6) containing [pos, vel]
+                - detection_results: list of dicts with keys:
+                    - 'debris_id': int, index of debris
+                    - 'detected': bool, whether debris was detected
+                    - 'first_detection_time': float or None, time of first detection
+                    - 'detections': list of dicts with 'sensor_id' and 'time'
+        '''
 
-    #     # define time steps to evaluate based on detection frequency
-    #     num_steps = int(soliton_lifetime * DETECTION_FREQ)
-    #     timesteps = np.linspace(soliton_generation_time, soliton_generation_time + soliton_lifetime, num_steps)
+        # generate random debris around the satellite
+        debris_samples = self.generate_debris_samples(no_of_samples, search_radius_km)
+
+        # Initialize detection results for each debris
+        detection_results = []
+        for debris_id in range(len(debris_samples)):
+            detection_results.append({
+                'debris_id': debris_id,
+                'detected': False,
+                'first_detection_time': None,
+                'detections': []  # List of {'sensor_id': int, 'time': float}
+            })
         
-    #     # propagate satellite to soliton generation time
-    #     positions, velocities = self.__sat_orbit.propagate(soliton_generation_time + soliton_lifetime, teval=timesteps, use_J2=True)
+        # simulate over time to propagate satellite and solitons
+        # use 1/DETECTION_FREQ time steps
+        time_steps = int(final_time * DETECTION_FREQ)
+        time_array = np.linspace(0, final_time, time_steps)
+        r_t, v_t = self.__sat_orbit.propagate(final_time, teval=np.arange(0, final_time, 1/DETECTION_FREQ), use_J2=True)
 
-    #     print("--------------------------------")
-    #     print(f"Checking soliton detection from time {soliton_generation_time} to "
-    #           f"{soliton_generation_time + soliton_lifetime} seconds over {num_steps} steps.")
-    #     for idx, t in enumerate(timesteps):
-    #         # update satellite state
-    #         self.__time = t
-    #         self.__position = positions[idx]
-    #         self.__velocity = velocities[idx]
-    #         # update sensor positions and rotation matrix
-    #         self.__BF_to_ECI()
-    #         print(f"Satellite position at time {t} seconds: {self.__position}, velocity: {self.__velocity}")
-    #         # check detection at this time
-    #         if self.__detect_type1_time(soliton):
-    #             detected = True
-    #             break
-    #         else:
-    #             detected = False
+        for t_idx in tqdm(range(time_steps)):
+            # update satellite position and velocity
+            self.__time = time_array[t_idx]
+            self.__position = r_t[t_idx]
+            self.__velocity = v_t[t_idx]
+            # update rotation matrix and sensor positions
+            self.__BF_to_ECI()
+            # check detection
+            # for each debris sample
+            
+            for debris_id, debris in enumerate(debris_samples):
+                debris_pos = debris[0:3]
+                debris_vel = debris[3:6]
 
-    #     return detected
+                # generate soliton from debris state vectors
+                soliton = Soliton.from_debris_state(debris_pos, debris_vel, 0)
+
+                # check if any sensor detects the soliton at current time
+                for sensor_id in range(4):
+                    sensor_pos_ECI = self.pos_BF2ECI(self.__sensors_BF[sensor_id])
+                    is_detected = soliton.within_soliton_shell(sensor_pos_ECI, self.__time)
+                    
+                    # Record detection if it occurred and hasn't been recorded at this time
+                    if is_detected:
+                        # Check if this detection has already been recorded
+                        detection_exists = any(
+                            d['sensor_id'] == sensor_id and abs(d['time'] - self.__time) < 1e-6 
+                            for d in detection_results[debris_id]['detections']
+                        )
+                        
+                        if not detection_exists:
+                            detection_results[debris_id]['detections'].append({
+                                'sensor_id': sensor_id,
+                                'time': self.__time
+                            })
+                            
+                            # Update detection status and first detection time
+                            if not detection_results[debris_id]['detected']:
+                                detection_results[debris_id]['detected'] = True
+                                detection_results[debris_id]['first_detection_time'] = self.__time
+
+        return debris_samples, detection_results
 
     def pos_BF2ECI(self, pos_BF):
         """Convert a position vector from body frame to ECI frame."""
