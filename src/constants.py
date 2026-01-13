@@ -30,4 +30,4 @@ ANGLE_MAX = 2 * np.pi
 SOL_SHELL_THICKNESS = 1e-06  # 1 cm 
 
 # Detection frequency (Hz)
-DETECTION_FREQ = 1000  # 10 kHz
+DETECTION_FREQ = 10000  # 10 kHz

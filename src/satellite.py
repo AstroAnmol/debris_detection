@@ -1,12 +1,12 @@
 import numpy as np
-from src.orbit import Orbit
-from src.soliton import Soliton
-from src.constants import *
-
 from tqdm import tqdm
 from scipy.spatial import ConvexHull
 import itertools
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from joblib import Parallel, delayed
+from src.orbit import Orbit
+from src.soliton import Soliton
+from src.constants import *
 
 class Satellite:
     def __init__(self):
@@ -249,64 +249,40 @@ class Satellite:
         # generate random debris around the satellite
         debris_samples = self.generate_debris_samples(no_of_samples, search_radius_km)
 
-        # Initialize detection results for each debris
-        detection_results = []
-        for debris_id in range(len(debris_samples)):
-            detection_results.append({
-                'debris_id': debris_id,
-                'detected': False,
-                'first_detection_time': None,
-                'detections': []  # List of {'sensor_id': int, 'time': float}
-            })
-        
         # simulate over time to propagate satellite and solitons
         # use 1/DETECTION_FREQ time steps
-        time_steps = int(final_time * DETECTION_FREQ)
-        time_array = np.linspace(0, final_time, time_steps)
-        r_t, v_t = self.__sat_orbit.propagate(final_time, teval=np.arange(0, final_time, 1/DETECTION_FREQ), use_J2=True)
-
-        for t_idx in tqdm(range(time_steps)):
-            # update satellite position and velocity
-            self.__time = time_array[t_idx]
-            self.__position = r_t[t_idx]
-            self.__velocity = v_t[t_idx]
-            # update rotation matrix and sensor positions
-            self.__BF_to_ECI()
-            # check detection
-            # for each debris sample
+        time_array = np.arange(0, final_time, 1/DETECTION_FREQ)
+        r_t, v_t = self.__sat_orbit.propagate(final_time, teval=time_array, use_J2=True)
+        
+        # Precompute rotation matrices for all time steps to avoid recomputing in each thread
+        # We can vectorize this or just loop quickly
+        R_stack = np.zeros((len(time_array), 3, 3))
+        
+        # Calculate R matrices
+        # Vectorized approach or loop? Loop is readable and fast enough for 10k items
+        for i in range(len(time_array)):
+            pos = r_t[i]
+            vel = v_t[i]
+            # specific logic matching __BF_to_ECI
+            sat_x_BF = vel / np.linalg.norm(vel) if np.linalg.norm(vel) != 0 else np.array([1.0, 0.0, 0.0])
+            sat_z_BF = -pos / np.linalg.norm(pos) if np.linalg.norm(pos) != 0 else np.array([0.0, 0.0, 1.0])
+            sat_y_BF = np.cross(sat_z_BF, sat_x_BF)
+            if np.linalg.norm(sat_y_BF) != 0:
+                sat_y_BF = sat_y_BF / np.linalg.norm(sat_y_BF)
             
-            for debris_id, debris in enumerate(debris_samples):
-                debris_pos = debris[0:3]
-                debris_vel = debris[3:6]
+            # Rotation matrix
+            R_stack[i] = np.column_stack([sat_x_BF, sat_y_BF, sat_z_BF])
 
-                # generate soliton from debris state vectors
-                soliton = Soliton.from_debris_state(debris_pos, debris_vel, 0)
-
-                # check if any sensor detects the soliton at current time
-                for sensor_id in range(4):
-                    sensor_pos_ECI = self.pos_BF2ECI(self.__sensors_BF[sensor_id])
-                    is_detected = soliton.within_soliton_shell(sensor_pos_ECI, self.__time)
-                    
-                    # Record detection if it occurred and hasn't been recorded at this time
-                    if is_detected:
-                        # Check if this detection has already been recorded
-                        detection_exists = any(
-                            d['sensor_id'] == sensor_id and abs(d['time'] - self.__time) < 1e-6 
-                            for d in detection_results[debris_id]['detections']
-                        )
-                        
-                        if not detection_exists:
-                            detection_results[debris_id]['detections'].append({
-                                'sensor_id': sensor_id,
-                                'time': self.__time
-                            })
-                            
-                            # Update detection status and first detection time
-                            if not detection_results[debris_id]['detected']:
-                                detection_results[debris_id]['detected'] = True
-                                detection_results[debris_id]['first_detection_time'] = self.__time
-
-        return debris_samples, detection_results
+        # Parallelize the debris check loop
+        # We process each debris independently across the entire time array
+        results = Parallel(n_jobs=-2)(
+            delayed(process_debris_task)(
+                debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
+            ) 
+            for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
+        )
+        
+        return debris_samples, results
 
     def pos_BF2ECI(self, pos_BF):
         """Convert a position vector from body frame to ECI frame."""
@@ -506,3 +482,50 @@ def plot_polyhedron(ax, vertices):
         
     except Exception as e:
         print(f"Error computing hull: {e}")
+
+def process_debris_task(debris_id, debris, time_array, r_t, R_stack, sensors_BF):
+    """
+    Helper function to process a single debris sample over the entire time array.
+    """
+    debris_pos = debris[0:3]
+    debris_vel = debris[3:6]
+    
+    # generate soliton from debris state vectors
+    soliton = Soliton.from_debris_state(debris_pos, debris_vel, 0)
+    
+    detections = []
+    detected = False
+    first_detection_time = None
+    
+    # check if any sensor detects the soliton at current time
+    for t_idx, current_time in enumerate(time_array):
+        # Satellite State
+        sat_pos = r_t[t_idx] # Current ECI position
+        R_mat = R_stack[t_idx]
+        
+        # Check all sensors
+        for sensor_id in range(len(sensors_BF)):
+            # convert sensor pos to ECI
+            # Using current R and sat_pos (assuming sat_pos is the origin of Body Frame in ECI)
+            sensor_pos_ECI = R_mat @ sensors_BF[sensor_id] + sat_pos 
+            
+            is_detected = soliton.within_soliton_shell(sensor_pos_ECI, current_time)
+            
+            if is_detected:
+                 # Record detection
+                 # Since we iterate sequentially, just append
+                 detections.append({
+                    'sensor_id': sensor_id,
+                    'time': current_time
+                 })
+                 
+                 if not detected:
+                     detected = True
+                     first_detection_time = current_time
+
+    return {
+        'debris_id': debris_id,
+        'detected': detected,
+        'first_detection_time': first_detection_time,
+        'detections': detections
+    }
