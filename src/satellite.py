@@ -305,6 +305,13 @@ class Satellite:
         )
         R_stack[:] = np.array(R_list)
 
+        # Save propagation data for potential reuse
+        prop_data_dir = os.path.join(os.path.dirname(__file__), "outputs")
+        os.makedirs(prop_data_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        prop_data_path = os.path.join(prop_data_dir, f"propagation_data_{timestamp}.npz")
+        np.savez(prop_data_path, r_t=r_t, v_t=v_t, R_stack=R_stack, time_array=time_array)
+
         print("Checking detections for each debris sample in parallel...")
         # Parallelize the debris check loop
         # We process each debris independently across the entire time array
