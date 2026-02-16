@@ -20,13 +20,6 @@ deb_orbit = Orbit.from_OE(OE_debris)
 sat_obj =Satellite()
 sat_obj.set_sat_orbit_OE(OE)
 
-
-fig = plt.figure(figsize=(8, 6))
-ax = fig.add_subplot(111, projection='3d')
-sat_obj.plot_satellite( ax=ax)
-
-plt.show()
-
 # debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10, final_time=10, search_radius_km=1)
 
 # out_dir = os.path.join(os.path.dirname(__file__), "outputs")
@@ -36,6 +29,7 @@ plt.show()
 
 # save_results(npz_path, debris_samples, detection_results)
 
+print("Calculating percentage of Type 2 detections for a large sample...")
 
 percentage_type2_detected = sat_obj.find_percent_type2_detected(detection_samples=1000000, final_time=36000, search_radius_km=20)
 
