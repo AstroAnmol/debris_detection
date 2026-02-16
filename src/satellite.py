@@ -276,30 +276,36 @@ class Satellite:
         # generate random debris around the satellite
         debris_samples = self.generate_debris_samples(no_of_samples, search_radius_km)
 
+        print(f"Generated {len(debris_samples)} debris samples")
+
+        print("Propagating satellite orbit...")
         # simulate over time to propagate satellite and solitons
         # use 1/DETECTION_FREQ time steps
         time_array = np.arange(0, final_time, 1/DETECTION_FREQ)
         r_t, v_t = self.__sat_orbit.propagate(final_time, teval=time_array, use_J2=True)
         
+        print("Precomputing rotation matrices for each time step...")
         # Precompute rotation matrices for all time steps to avoid recomputing in each thread
         # We can vectorize this or just loop quickly
         R_stack = np.zeros((len(time_array), 3, 3))
         
         # Calculate R matrices
-        # Vectorized approach or loop? Loop is readable and fast enough for 10k items
-        for i in range(len(time_array)):
-            pos = r_t[i]
-            vel = v_t[i]
-            # specific logic matching __BF_to_ECI
+        # 
+        def compute_rotation_matrix(i, pos, vel):
             sat_x_BF = vel / np.linalg.norm(vel) if np.linalg.norm(vel) != 0 else np.array([1.0, 0.0, 0.0])
             sat_z_BF = -pos / np.linalg.norm(pos) if np.linalg.norm(pos) != 0 else np.array([0.0, 0.0, 1.0])
             sat_y_BF = np.cross(sat_z_BF, sat_x_BF)
             if np.linalg.norm(sat_y_BF) != 0:
                 sat_y_BF = sat_y_BF / np.linalg.norm(sat_y_BF)
-            
-            # Rotation matrix
-            R_stack[i] = np.column_stack([sat_x_BF, sat_y_BF, sat_z_BF])
+            return np.column_stack([sat_x_BF, sat_y_BF, sat_z_BF])
+        
+        R_list = Parallel(n_jobs=-2)(
+            delayed(compute_rotation_matrix)(i, r_t[i], v_t[i]) 
+            for i in tqdm(range(len(time_array)), desc="Computing Rotation Matrices")
+        )
+        R_stack[:] = np.array(R_list)
 
+        print("Checking detections for each debris sample in parallel...")
         # Parallelize the debris check loop
         # We process each debris independently across the entire time array
         results = Parallel(n_jobs=-2)(
