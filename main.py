@@ -1,7 +1,7 @@
 import numpy as np
 from src.orbit import *
 # from monte_carlo import generate_forced_debris
-from src.satellite import Satellite
+from src.satellite import Satellite, save_results, load_results
 from src.soliton import Soliton
 from src.constants import *
 import matplotlib.pyplot as plt
@@ -20,14 +20,92 @@ deb_orbit = Orbit.from_OE(OE_debris)
 sat_obj =Satellite()
 sat_obj.set_sat_orbit_OE(OE)
 
-debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10, final_time=10, search_radius_km=1)
 
-out_dir = os.path.join(os.path.dirname(__file__), "outputs")
-os.makedirs(out_dir, exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-npz_path = os.path.join(out_dir, f"detection_sim_{timestamp}.npz")
-np.savez(npz_path, debris_samples=debris_samples, detection_results=np.array(detection_results))
-print(f"Saved debris_samples and detection_results to: {npz_path}")
+fig = plt.figure(figsize=(8, 6))
+ax = fig.add_subplot(111, projection='3d')
+sat_obj.plot_satellite( ax=ax)
+
+plt.show()
+
+# debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10, final_time=10, search_radius_km=1)
+
+# out_dir = os.path.join(os.path.dirname(__file__), "outputs")
+# os.makedirs(out_dir, exist_ok=True)
+# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+# npz_path = os.path.join(out_dir, f"detection_sim_{timestamp}.npz")
+
+# save_results(npz_path, debris_samples, detection_results)
+
+
+percentage_type2_detected = sat_obj.find_percent_type2_detected(detection_samples=1000000, final_time=36000, search_radius_km=20)
+
+# def find_multi_sensor_time_detections(detection_results):
+#     """
+#     Find debris samples that have detections at differing times AND on differing sensors.
+    
+#     Args:
+#         detection_results (list): List of detection result dictionaries.
+        
+#     Returns:
+#         list: List of debris_ids that satisfy the criteria.
+#     """
+#     multi_detected_debris = []
+    
+#     # helper to handle both object (dict) and numpy void types if loaded from npz
+#     def get_val(item, key):
+#         if isinstance(item, dict):
+#             return item[key]
+#         # if it's a structured array or object from np.load
+#         return item[key]
+
+#     for res in detection_results:
+#         # Check if detected
+#         if isinstance(res, dict):
+#             if not res['detected']:
+#                 continue
+#             detections = res['detections']
+#             debris_id = res['debris_id']
+#         else:
+#             # Handle case where numpy might return a zero-d array wrapper around the dict
+#             # or if accessing keys works differently
+#             if not res['detected']:
+#                 continue
+#             detections = res['detections']
+#             debris_id = res['debris_id']
+
+#         if not detections or len(detections) < 2:
+#             continue
+            
+#         found_pair = False
+#         # Iterate through all unique pairs of detections to find a match
+#         for i in range(len(detections)):
+#             for j in range(i + 1, len(detections)):
+#                 d1 = detections[i]
+#                 d2 = detections[j]
+                
+#                 # Check for different times AND different sensors
+#                 # Using 1e-6 tolerance for time comparison just in case, though != likely works for exact steps
+#                 time_diff = abs(d1['time'] - d2['time']) > 1e-6
+#                 sensor_diff = d1['sensor_id'] != d2['sensor_id']
+                
+#                 if time_diff and sensor_diff:
+#                     found_pair = True
+#                     break
+#             if found_pair:
+#                 break
+        
+#         if found_pair:
+#             multi_detected_debris.append(debris_id)
+            
+#     return multi_detected_debris
+
+# # Load the results back to demonstrate reading
+# loaded_debris, loaded_results = load_results(npz_path)
+
+# # Filter results
+# interesting_debris = find_multi_sensor_time_detections(loaded_results)
+# print(f"Debris IDs with detections at >1 timestamps and >1 sensors: {interesting_debris}")
+
 
 
 # print("Detection results over time (rows: time steps, columns: debris samples):")

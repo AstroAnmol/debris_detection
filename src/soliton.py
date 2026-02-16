@@ -29,7 +29,8 @@ class Soliton:
 
         self.__sol_vel_vec = self.__debris_vel_vec * self.__vel_multiplier # Soliton velocity vector in km/s
         self.__time_to_reach_cone_base = self.__cone_height / np.linalg.norm(self.__sol_vel_vec) # Time to reach cone base in s
-        self.shell_thickness = 2/DETECTION_FREQ * np.linalg.norm(self.__sol_vel_vec)  # Thickness based on detection frequency
+        # self.shell_thickness = 2/DETECTION_FREQ * np.linalg.norm(self.__sol_vel_vec)  # Thickness based on detection frequency
+        self.shell_thickness = 10 * 1e-6  # 10 cm shell thickness (can be adjusted as needed)
         
     
     # alternative constructor

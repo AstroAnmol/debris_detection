@@ -7,6 +7,8 @@ from joblib import Parallel, delayed
 from src.orbit import Orbit
 from src.soliton import Soliton
 from src.constants import *
+import os
+from datetime import datetime
 
 class Satellite:
     def __init__(self):
@@ -22,17 +24,25 @@ class Satellite:
         self.__T_detections = 0 #total detections
         self.__type1_detections = 0 # type 1 detections (Same soliton at the same time detected by multiple sensors)
 
+        # sensore angles in body frame
+        self.__alpha_x = np.deg2rad(54.74)
+        self.__alpha_z = np.deg2rad(45.00)
+
+        self.__sensor_vectors = np.array([
+            [ np.cos(self.__alpha_x), np.sin(self.__alpha_z)*np.sin(self.__alpha_x), np.cos(self.__alpha_z)*np.sin(self.__alpha_x)],
+            [ np.cos(self.__alpha_x),-np.sin(self.__alpha_z)*np.sin(self.__alpha_x), np.cos(self.__alpha_z)*np.sin(self.__alpha_x)],
+            [ np.cos(self.__alpha_x),-np.sin(self.__alpha_z)*np.sin(self.__alpha_x),-np.cos(self.__alpha_z)*np.sin(self.__alpha_x)],
+            [ np.cos(self.__alpha_x), np.sin(self.__alpha_z)*np.sin(self.__alpha_x),-np.cos(self.__alpha_z)*np.sin(self.__alpha_x)]
+        ]) 
+
         # satellite corners in body frame
         self.__corners_BF = np.array([[ 1, 1, 1],
                                       [ 1,-1, 1],
                                       [ 1,-1,-1],
-                                      [ 1, 1,-1]]) * self.__sat_size / 2
+                                      [ 1, 1,-1]]) * self.__sat_size / (2 * np.sqrt(3))
 
         # sensor positions in body frame
-        self.__sensors_BF = self.__corners_BF + self.__boom_length * np.array([[ 1, 1, 1],
-                                      [ 1,-1, 1],
-                                      [ 1,-1,-1],
-                                      [ 1, 1,-1]]) / np.sqrt(3)
+        self.__sensors_BF = self.__corners_BF + self.__boom_length * self.__sensor_vectors
         
         # satellite orbit (default values, can be updated)
         self.__OE_sat =  [R_EARTH + 750, 0.063, np.deg2rad(45), 0, 0, 0]
@@ -100,6 +110,23 @@ class Satellite:
         self.__position = self.__position0.copy()
         self.__velocity = self.__velocity0.copy()
         self.__sat_orbit = Orbit.from_SV(np.array([self.__position0, self.__velocity0]))
+        self.__BF_to_ECI()
+
+    def set_sensor_vectors(self, angles):
+        """Set the sensor vectors.
+        Args:
+            angles (list): List of sensor angles in degrees [az1, el1, az2, el2, az3, el3, az4, el4].
+        """
+        self.__sensor_vectors = np.array([
+            [ np.cos(angles[0]), np.sin(angles[0])*np.sin(angles[1]), np.sin(angles[0])*np.cos(angles[1])],
+            [ np.cos(angles[2]),-np.sin(angles[2])*np.sin(angles[3]), np.sin(angles[2])*np.cos(angles[3])],
+            [ np.cos(angles[4]),-np.sin(angles[4])*np.sin(angles[5]),-np.sin(angles[4])*np.cos(angles[5])],
+            [ np.cos(angles[6]), np.sin(angles[6])*np.sin(angles[7]),-np.sin(angles[6])*np.cos(angles[7])]
+        ]) 
+
+        # sensor positions in body frame
+        self.__sensors_BF = self.__corners_BF + self.__boom_length * self.__sensor_vectors
+        
         self.__BF_to_ECI()
 
     # check if a position vector (ECI) is within satellite wake at current time
@@ -227,7 +254,7 @@ class Satellite:
 
         return np.array(valid_samples)
 
-    def detection_sim(self, no_of_samples, final_time, search_radius_km):
+    def detection_sim(self, no_of_samples, final_time, search_radius_km, save=False):
         '''
         Monte Carlo simulation to generate random debris and check if the generated soliton is detected by the satellite.
         All the solitons are generated at time t=0 for simplicity.
@@ -282,8 +309,77 @@ class Satellite:
             for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
         )
         
+        if save:
+            out_dir = os.path.join(os.path.dirname(__file__), "outputs")
+            os.makedirs(out_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            npz_path = os.path.join(out_dir, f"detection_sim_{timestamp}.npz")
+            save_results(npz_path, debris_samples, results)
+
         return debris_samples, results
 
+
+    def find_percent_type2_detected(self, detection_samples, final_time, search_radius_km):
+        """
+        Find debris samples that have detections at differing times AND on differing sensors.
+
+        Returns:
+            float: percentage of debris samples that have detections at differing times AND on differing sensors
+        """
+
+        debris_samples, results = self.detection_sim(detection_samples, final_time, search_radius_km, save=True)
+
+        multi_detected_debris = []
+    
+        # helper to handle both object (dict) and numpy void types if loaded from npz
+        def get_val(item, key):
+            if isinstance(item, dict):
+                return item[key]
+            # if it's a structured array or object from np.load
+            return item[key]
+
+        for res in results:
+            # Check if detected
+            if isinstance(res, dict):
+                if not res['detected']:
+                    continue
+                detections = res['detections']
+                debris_id = res['debris_id']
+            else:
+                # Handle case where numpy might return a zero-d array wrapper around the dict
+                # or if accessing keys works differently
+                if not res['detected']:
+                    continue
+                detections = res['detections']
+                debris_id = res['debris_id']
+
+            if not detections or len(detections) < 2:
+                continue
+                
+            found_pair = False
+            # Iterate through all unique pairs of detections to find a match
+            for i in range(len(detections)):
+                for j in range(i + 1, len(detections)):
+                    d1 = detections[i]
+                    d2 = detections[j]
+                    
+                    # Check for different times AND different sensors
+                    # Using 1e-6 tolerance for time comparison just in case, though != likely works for exact steps
+                    time_diff = abs(d1['time'] - d2['time']) > 1e-6
+                    sensor_diff = d1['sensor_id'] != d2['sensor_id']
+                    
+                    if time_diff and sensor_diff:
+                        found_pair = True
+                        break
+                if found_pair:
+                    break
+            
+            if found_pair:
+                multi_detected_debris.append(debris_id)
+
+        percent_type2_detected = len(multi_detected_debris) / detection_samples
+        return percent_type2_detected
+    
     def pos_BF2ECI(self, pos_BF):
         """Convert a position vector from body frame to ECI frame."""
         return self.__R_BF_to_ECI @ pos_BF + self.__position0
@@ -529,3 +625,46 @@ def process_debris_task(debris_id, debris, time_array, r_t, R_stack, sensors_BF)
         'first_detection_time': first_detection_time,
         'detections': detections
     }
+
+def save_results(filename, debris_samples, detection_results):
+    """
+    Save the debris samples and detection results to a .npz file in the results folder.
+    
+    Args:
+        filename (str): The name of the file to save (should end in .npz).
+        debris_samples (np.array): Array of debris samples.
+        detection_results (list): List of detection results (dictionaries).
+    """
+    # Determine the results directory relative to this script
+    results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Use only the basename of the filename to ensure it saves in results_dir
+    save_path = os.path.join(results_dir, os.path.basename(filename))
+
+    # Ensure detection_results is wrapped in a way that preserves the dictionary structure
+    # Using np.array with object dtype
+    np.savez(save_path, debris_samples=debris_samples, detection_results=np.array(detection_results, dtype=object))
+    print(f"Results saved to {save_path}")
+
+def load_results(filename):
+    """
+    Load the debris samples and detection results from a .npz file.
+    
+    Args:
+        filename (str): The path to the file to load.
+        
+    Returns:
+        tuple: (debris_samples, detection_results)
+    """
+    with np.load(filename, allow_pickle=True) as data:
+        debris_samples = data['debris_samples']
+        # detection_results was saved as a 1D array of objects (dicts)
+        detection_results = data['detection_results']
+        
+        # If it was saved as an object array, it might be returned as such.
+        # Check if we need to convert back to a list
+        if isinstance(detection_results, np.ndarray):
+            detection_results = detection_results.tolist()
+            
+    return debris_samples, detection_results
