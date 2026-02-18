@@ -631,7 +631,7 @@ def process_debris_task(debris_id, debris, time_array, r_t, R_stack, sensors_BF)
     first_detection_time = None
     
     # check if any sensor detects the soliton at current time
-    for t_idx, current_time in enumerate(time_array):
+    for t_idx, current_time in enumerate(tqdm(time_array, desc=f"Debris {debris_id} Time Steps", leave=False)):
         # Satellite State
         sat_pos = r_t[t_idx] # Current ECI position
         R_mat = R_stack[t_idx]
