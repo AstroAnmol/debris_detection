@@ -329,14 +329,22 @@ class Satellite:
         time_array = prop_data['time_array']
 
         print("Checking detections for each debris sample in parallel...")
-        # Parallelize the debris check loop
-        # We process each debris independently across the entire time array
-        results = Parallel(n_jobs=40)(
-            delayed(process_debris_task)(
-                debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
-            ) 
-            for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
-        )
+        # # Parallelize the debris check loop
+        # # We process each debris independently across the entire time array
+        # results = Parallel(n_jobs=40)(
+        #     delayed(process_debris_task)(
+        #         debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
+        #     ) 
+        #     for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
+        # )
+
+        # Process each debris sample sequentially over the entire time array
+        results = []
+        for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris")):
+            result = process_debris_task(
+            debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
+            )
+            results.append(result)
         
         if save:
             out_dir = os.path.join(os.path.dirname(__file__), "outputs")
