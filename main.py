@@ -31,7 +31,7 @@ sat_obj.set_sat_orbit_OE(OE)
 
 print("Calculating percentage of Type 2 detections for a large sample...")
 
-percentage_type2_detected = sat_obj.find_percent_type2_detected(detection_samples=1000000, final_time=3600, search_radius_km=20)
+percentage_type2_detected = sat_obj.find_percent_type2_detected(detection_samples=1000, final_time=3600, search_radius_km=20)
 
 # def find_multi_sensor_time_detections(detection_results):
 #     """
