@@ -20,7 +20,7 @@ deb_orbit = Orbit.from_OE(OE_debris)
 sat_obj =Satellite()
 sat_obj.set_sat_orbit_OE(OE)
 
-debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10, final_time=10, search_radius_km=1)
+debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10, final_time=, search_radius_km=1)
 
 out_dir = os.path.join(os.path.dirname(__file__), "outputs")
 os.makedirs(out_dir, exist_ok=True)

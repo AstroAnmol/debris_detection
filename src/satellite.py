@@ -255,59 +255,64 @@ class Satellite:
 
         print(f"Generated {len(debris_samples)} debris samples")
 
+        print("read satellite propagation data...")
+        # Load previously saved propagation data (for testing)
+        prop_data_dir = os.path.join(os.path.dirname(__file__), "outputs")
+        prop_files = [f for f in os.listdir(prop_data_dir) if f.startswith("propagation_data_") and f.endswith(".npz")]
+        if not prop_files:
+            raise FileNotFoundError("No propagation data found. Please run the simulation once to generate propagation data.")
+        latest_prop_file = max(prop_files, key=lambda f: os.path.getctime(os.path.join(prop_data_dir, f)))
+        prop_data_path = os.path.join(prop_data_dir, latest_prop_file)
+        prop_data = np.load(prop_data_path, allow_pickle=True)
+        print(f"Loaded propagation data from {prop_data_path}")
+        r_t = prop_data['r_t']
+        v_t = prop_data['v_t']
+        R_stack = prop_data['R_stack']
+        time_array = prop_data['time_array']
+        print(f"final time in time_array: {time_array[-1]}")
+
         if final_time is not None:
-            print("Propagating satellite orbit...")
-            # simulate over time to propagate satellite and solitons
-            # use 1/DETECTION_FREQ time steps
-            time_array = np.arange(0, final_time, 1/DETECTION_FREQ)
-            r_t, v_t = self.__sat_orbit.propagate(final_time, teval=time_array, use_J2=True)
-            
-            print("Precomputing rotation matrices for each time step...")
-            # Precompute rotation matrices for all time steps to avoid recomputing in each thread
-            # We can vectorize this or just loop quickly
-            R_stack = np.zeros((len(time_array), 3, 3))
-            
-            # Calculate R matrices
-            # 
-            def compute_rotation_matrix(i, pos, vel):
-                sat_x_BF = vel / np.linalg.norm(vel) if np.linalg.norm(vel) != 0 else np.array([1.0, 0.0, 0.0])
-                sat_z_BF = -pos / np.linalg.norm(pos) if np.linalg.norm(pos) != 0 else np.array([0.0, 0.0, 1.0])
-                sat_y_BF = np.cross(sat_z_BF, sat_x_BF)
-                if np.linalg.norm(sat_y_BF) != 0:
-                    sat_y_BF = sat_y_BF / np.linalg.norm(sat_y_BF)
-                return np.column_stack([sat_x_BF, sat_y_BF, sat_z_BF])
-            
-            R_list = Parallel(n_jobs=-2)(
-                delayed(compute_rotation_matrix)(i, r_t[i], v_t[i]) 
-                for i in tqdm(range(len(time_array)), desc="Computing Rotation Matrices")
-            )
-            R_stack[:] = np.array(R_list)
+            # check if we have propagation data for the requested final_time, if not, we need to propagate and save new data
+            if time_array[-1] < final_time:
+                # propagate extra time and save combined data
+                print("Propagating satellite orbit...")
+                # simulate over time to propagate satellite and solitons
+                # use 1/DETECTION_FREQ time steps
+                time_array = np.arange(time_array[-1], final_time, 1/DETECTION_FREQ)
+                self.set_sat_orbit_SV(r_t[-1], v_t[-1]) # update satellite state to last propagated state
+                r_t, v_t = self.__sat_orbit.propagate(final_time, teval=time_array, use_J2=True)
+                
+                print("Precomputing rotation matrices for each time step...")
+                # Precompute rotation matrices for all time steps to avoid recomputing in each thread
+                # We can vectorize this or just loop quickly
+                R_stack = np.zeros((len(time_array), 3, 3))
+                
+                # Calculate R matrices
+                # 
+                def compute_rotation_matrix(i, pos, vel):
+                    sat_x_BF = vel / np.linalg.norm(vel) if np.linalg.norm(vel) != 0 else np.array([1.0, 0.0, 0.0])
+                    sat_z_BF = -pos / np.linalg.norm(pos) if np.linalg.norm(pos) != 0 else np.array([0.0, 0.0, 1.0])
+                    sat_y_BF = np.cross(sat_z_BF, sat_x_BF)
+                    if np.linalg.norm(sat_y_BF) != 0:
+                        sat_y_BF = sat_y_BF / np.linalg.norm(sat_y_BF)
+                    return np.column_stack([sat_x_BF, sat_y_BF, sat_z_BF])
+                
+                R_list = Parallel(n_jobs=-2)(
+                    delayed(compute_rotation_matrix)(i, r_t[i], v_t[i]) 
+                    for i in tqdm(range(len(time_array)), desc="Computing Rotation Matrices")
+                )
+                R_stack[:] = np.array(R_list)
 
-            # Save propagation data for potential reuse
-            prop_data_dir = os.path.join(os.path.dirname(__file__), "outputs")
-            os.makedirs(prop_data_dir, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            prop_data_path = os.path.join(prop_data_dir, f"propagation_data_{timestamp}.npz")
-            np.savez(prop_data_path, r_t=r_t, v_t=v_t, R_stack=R_stack, time_array=time_array)
+                # Save propagation data for potential reuse
+                prop_data_dir = os.path.join(os.path.dirname(__file__), "outputs")
+                os.makedirs(prop_data_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                prop_data_path = os.path.join(prop_data_dir, f"propagation_data_{timestamp}.npz")
+                np.savez(prop_data_path, r_t=r_t, v_t=v_t, R_stack=R_stack, time_array=time_array)
 
-        else:
-            print("read satellite propagation data...")
-            # Load previously saved propagation data (for testing)
-            prop_data_dir = os.path.join(os.path.dirname(__file__), "outputs")
-            prop_files = [f for f in os.listdir(prop_data_dir) if f.startswith("propagation_data_") and f.endswith(".npz")]
-            if not prop_files:
-                raise FileNotFoundError("No propagation data found. Please run the simulation once to generate propagation data.")
-            latest_prop_file = max(prop_files, key=lambda f: os.path.getctime(os.path.join(prop_data_dir, f)))
-            prop_data_path = os.path.join(prop_data_dir, latest_prop_file)
-            prop_data = np.load(prop_data_path, allow_pickle=True)
-            print(f"Loaded propagation data from {prop_data_path}")
-            r_t = prop_data['r_t']
-            R_stack = prop_data['R_stack']
-            time_array = prop_data['time_array']
-            print(f"final time in time_array: {time_array[-1]}")
-
-            time_array = time_array[time_array <= 300]
-            print(f"final time after trimming: {time_array[-1]}")   
+        time_array = time_array[time_array <= 300]
+        print(f"final time after trimming: {time_array[-1]}")   
+            
 
         print("Checking detections for each debris sample in parallel...")
         # Parallelize the debris check loop
