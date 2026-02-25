@@ -327,24 +327,28 @@ class Satellite:
         r_t = prop_data['r_t']
         R_stack = prop_data['R_stack']
         time_array = prop_data['time_array']
+        print(f"final time in time_array: {time_array[-1]}")
+
+        time_array = time_array[time_array <= 300]
+        print(f"final time after trimming: {time_array[-1]}")   
 
         print("Checking detections for each debris sample in parallel...")
-        # # Parallelize the debris check loop
-        # # We process each debris independently across the entire time array
-        # results = Parallel(n_jobs=40)(
-        #     delayed(process_debris_task)(
-        #         debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
-        #     ) 
-        #     for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
-        # )
+        # Parallelize the debris check loop
+        # We process each debris independently across the entire time array
+        results = Parallel(n_jobs=40)(
+            delayed(process_debris_task)(
+                debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
+            ) 
+            for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris"))
+        )
 
-        # Process each debris sample sequentially over the entire time array
-        results = []
-        for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris")):
-            result = process_debris_task(
-            debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
-            )
-            results.append(result)
+        # # Process each debris sample sequentially over the entire time array
+        # results = []
+        # for debris_id, debris in enumerate(tqdm(debris_samples, desc="Processing Debris")):
+        #     result = process_debris_task(
+        #     debris_id, debris, time_array, r_t, R_stack, self.__sensors_BF
+        #     )
+        #     results.append(result)
         
         if save:
             out_dir = os.path.join(os.path.dirname(__file__), "outputs")
