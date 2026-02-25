@@ -332,6 +332,9 @@ class Satellite:
         #     )
         #     results.append(result)
         
+        # Filter out None results (debris that weren't detected or were too far away)
+        results = [r for r in results if r is not None]
+
         if save:
             out_dir = os.path.join(os.path.dirname(__file__), "outputs")
             os.makedirs(out_dir, exist_ok=True)
