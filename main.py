@@ -22,12 +22,12 @@ sat_obj.set_sat_orbit_OE(OE)
 
 debris_samples, detection_results = sat_obj.detection_sim(no_of_samples=10000, final_time=10, search_radius_km=1)
 
-out_dir = os.path.join(os.path.dirname(__file__), "outputs")
-os.makedirs(out_dir, exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-npz_path = os.path.join(out_dir, f"detection_sim_{timestamp}.npz")
+# out_dir = os.path.join(os.path.dirname(__file__), "outputs")
+# os.makedirs(out_dir, exist_ok=True)
+# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+# npz_path = os.path.join(out_dir, f"detection_sim_{timestamp}.npz")
 
-save_results(npz_path, debris_samples, detection_results)
+# save_results(npz_path, debris_samples, detection_results)
 
 print("Detection results over time (rows: time steps, columns: debris samples):")
 print(np.array(detection_results))

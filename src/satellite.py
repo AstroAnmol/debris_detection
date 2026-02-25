@@ -678,12 +678,15 @@ def process_debris_task(debris_id, debris, time_array, r_t, R_stack, sensors_BF)
                      detected = True
                      first_detection_time = current_time
 
-    return {
-        'debris_id': debris_id,
-        'detected': detected,
-        'first_detection_time': first_detection_time,
-        'detections': detections
-    }
+    if not detected:
+        return None
+    else:
+        return {
+            'debris_id': debris_id,
+            'detected': detected,
+            'first_detection_time': first_detection_time,
+            'detections': detections
+        }
 
 def save_results(filename, debris_samples, detection_results):
     """
