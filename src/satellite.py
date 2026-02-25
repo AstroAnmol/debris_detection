@@ -625,13 +625,49 @@ def process_debris_task(debris_id, debris, time_array, r_t, R_stack, sensors_BF)
     
     # generate soliton from debris state vectors
     soliton = Soliton.from_debris_state(debris_pos, debris_vel, 0)
+    soliton_vel = soliton.get_velocity()
+    soliton_pos = debris_pos
+
+    # 1. Coarse search to find approx time of closest approach
+    cadence = 1000
+    min_dist = float('inf')
+    time_closest = 0
+    t_idx_closest = 0
+    for t_idx in range(0, len(time_array), cadence):
+        current_time = time_array[t_idx]
+        sat_pos = r_t[t_idx]
+        sol_center = soliton_pos + soliton_vel * current_time
+        dist = np.linalg.norm(sat_pos - sol_center)
+        if dist < min_dist:
+            min_dist = dist
+            time_closest = current_time
+            t_idx_closest = t_idx
+    
+    # 2. Fine search around time of closest approach
+    search_window = 1000 # seconds
+    start_idx = max(0, t_idx_closest - search_window // cadence)
+    end_idx = min(len(time_array), t_idx_closest + search_window // cadence)
+    
+    for t_idx in range(start_idx, end_idx):
+        current_time = time_array[t_idx]
+        sat_pos = r_t[t_idx]
+        sol_center = soliton_pos + soliton_vel * current_time
+        dist = np.linalg.norm(sat_pos - sol_center)
+        if dist < min_dist:
+            min_dist = dist
+            time_closest = current_time
+            t_idx_closest = t_idx
+    
+    # check if closest approach is within 12 km
+    if min_dist > 12:
+        return None
     
     detections = []
     detected = False
     first_detection_time = None
     
-    # check if any sensor detects the soliton at current time
-    for t_idx, current_time in enumerate(tqdm(time_array, desc=f"Debris {debris_id} Time Steps", leave=False)):
+    # check if any sensor detects the soliton between start_idx and end_idx 
+    for t_idx, current_time in enumerate(tqdm(time_array[start_idx:end_idx], desc=f"Debris {debris_id} Time Steps", leave=False)):
         # Satellite State
         sat_pos = r_t[t_idx] # Current ECI position
         R_mat = R_stack[t_idx]
