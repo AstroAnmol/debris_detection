@@ -158,14 +158,11 @@ class Satellite:
                 list: List of valid debris sample positions and velocities in ECI frame.
         """
 
-        valid_samples = []
-
-        while len(valid_samples) < num_samples:
-            # Generate a batch of random offsets in BODY FRAME
-            # Generate slightly more than needed (e.g. 2x) to account for rejection
-            batch_size = (num_samples - len(valid_samples)) * 2
-
-            # Random direction
+        def generate_batch(batch_id, batch_size):
+            """Generate a single batch of debris samples."""
+            batch_samples = []
+            
+            # Generate random offsets in BODY FRAME
             u = np.random.uniform(0, 1, batch_size)
             v = np.random.uniform(0, 1, batch_size)
             theta = 2 * np.pi * u
@@ -177,82 +174,62 @@ class Satellite:
             y = r * np.sin(phi) * np.sin(theta)
             z = r * np.cos(phi)
             
-            # Shape: (N, 3) matrix of random points
             offsets_BF = np.vstack((x, y, z)).T
 
             # WAKE CHECK
-            # Check 1: Back Plane
-            # We use broadcasting: (3,) @ (3, N) -> (N,)
             check_back = (offsets_BF @ self.__wake_back_plane_normal_BF - self.__wake_d_back_BF) >= 0
-            
-            # Check 2-5: Side Planes
             check_1 = (offsets_BF @ self.__wake_planes_normal_BF[0] - self.__wake_d_planes_BF[0]) >= 0
             check_2 = (offsets_BF @ self.__wake_planes_normal_BF[1] - self.__wake_d_planes_BF[1]) >= 0
             check_3 = (offsets_BF @ self.__wake_planes_normal_BF[2] - self.__wake_d_planes_BF[2]) >= 0
             check_4 = (offsets_BF @ self.__wake_planes_normal_BF[3] - self.__wake_d_planes_BF[3]) >= 0
             
-            # Combine: Point is in wake if ALL checks are True
             in_wake_mask = check_back & check_1 & check_2 & check_3 & check_4
-            
-            # Keep only points where in_wake is FALSE
             valid_offsets_BF = offsets_BF[~in_wake_mask]
 
-            # If we found nothing valid in this batch (unlikely), continue
             if len(valid_offsets_BF) == 0:
-                continue
+                return batch_samples
 
             # CONVERT TO ECI
-            # Transform survivors from Body Frame to ECI
-            # R_BF_to_ECI shape (3,3). valid_offsets shape (M, 3). 
-            # Result = (R @ v.T).T
             valid_offsets_ECI = (self.__R_BF_to_ECI @ valid_offsets_BF.T).T
-            
-            # Add to satellite position
-            r_sat_eci = self.__position # current sat position
+            r_sat_eci = self.__position
             r_deb_batch = r_sat_eci + valid_offsets_ECI
             
             # ASSIGN VELOCITY (LVLH Logic)
-            # Now that we have valid positions, we assign velocities
-            # calculate LVLH basis vectors for the satellite
             h_vec = np.cross(self.__position, self.__velocity)
             u_radial = self.__position / np.linalg.norm(self.__position)
             u_cross = h_vec / np.linalg.norm(h_vec)
             u_along = np.cross(u_cross, u_radial)
             
-            
             for i in range(len(r_deb_batch)):
-                # Stop if we have enough
-                if len(valid_samples) >= num_samples:
-                    break
-                
                 pos = r_deb_batch[i]
                 r_mag = np.linalg.norm(pos)
                 
-                # Circular velocity magnitude
                 v_mag = np.sqrt(GM_EARTH / r_mag)
-                
-                # Random crossing angle
                 angle = np.random.uniform(0, 2*np.pi)
                 
-                # Construct the velocity vector in the LVLH frame
-                # It has 0 radial component (circular orbit assumption)
                 v_local_radial = 0
                 v_local_along  = v_mag * np.cos(angle)
                 v_local_cross  = v_mag * np.sin(angle)
                 
-                # Rotate back to ECI Frame
                 v_eci = (v_local_radial * u_radial) + \
                         (v_local_along  * u_along) + \
                         (v_local_cross  * u_cross)
                 
-                # Add some small random noise to velocity (e.g., 100 m/s std dev)
-                v_eci += np.random.normal(0, 0.1, 3) # 100 m/s noise
+                v_eci += np.random.normal(0, 0.1, 3)
+                batch_samples.append(np.concatenate([pos, v_eci]))
+            
+            return batch_samples
 
-                # Store
-                valid_samples.append(np.concatenate([pos, v_eci]))
-            break # exit while loop after one batch for testing
-
-        return np.array(valid_samples)
+        # Parallelize generation across 40 tasks
+        batch_size = num_samples * 2 // 40
+        results = Parallel(n_jobs=40)(
+            delayed(generate_batch)(batch_id, batch_size)
+            for batch_id in range(40)
+        )
+        
+        # Flatten results and return first num_samples
+        valid_samples = [sample for batch in results for sample in batch]
+        return np.array(valid_samples[:num_samples])
 
     def detection_sim(self, no_of_samples, final_time, search_radius_km, save=False):
         '''
@@ -276,7 +253,7 @@ class Satellite:
         # generate random debris around the satellite
         debris_samples = self.generate_debris_samples(no_of_samples, search_radius_km)
 
-        # print(f"Generated {len(debris_samples)} debris samples")
+        print(f"Generated {len(debris_samples)} debris samples")
 
         # print("Propagating satellite orbit...")
         # # simulate over time to propagate satellite and solitons
